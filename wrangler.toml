@@ -1,0 +1,23 @@
+name = "blink-api"
+main = "worker/src/index.js"
+compatibility_date = "2024-04-01"
+
+# D1 Database Binding
+[[d1_databases]]
+binding = "DB"
+database_name = "blink-db"
+database_id = "PLACEHOLDER_DB_ID"
+
+# Durable Object Binding (Real-time Engine)
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ChatRoom"]
+
+# R2 Bucket Binding (File Storage)
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "blink-assets"
