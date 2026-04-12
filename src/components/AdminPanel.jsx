@@ -66,7 +66,7 @@ const AdminPanel = () => {
         {stats.map((stat, i) => (
           <div key={i} style={{ backgroundColor: 'white', padding: '1.5rem', borderRadius: '16px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-              <div style={{ width: '40px', height: '40px', backgroundColor: stat.color, borderRadius: '8px', display: 'flex', alignItems: 'center', justify-content: 'center', color: stat.iconColor }}>
+              <div style={{ width: '40px', height: '40px', backgroundColor: stat.color, borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: stat.iconColor }}>
                 <stat.icon size={20} />
               </div>
               <div style={{ 

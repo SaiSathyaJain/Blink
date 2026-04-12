@@ -83,7 +83,7 @@ const FileModal = ({ isOpen, onClose, onSend }) => {
             cursor: 'pointer'
           }}
         >
-          <div style={{ width: '48px', height: '48px', backgroundColor: 'var(--primary)', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justify-content: 'center' }}>
+          <div style={{ width: '48px', height: '48px', backgroundColor: 'var(--primary)', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Upload size={24} />
           </div>
           <div style={{ textAlign: 'center' }}>
@@ -101,7 +101,7 @@ const FileModal = ({ isOpen, onClose, onSend }) => {
                 marginBottom: '1.5rem'
             }}>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                    <div style={{ width: '40px', height: '40px', backgroundColor: '#fee2e2', borderRadius: '8px', display: 'flex', alignItems: 'center', justify-content: 'center', color: '#ef4444' }}>
+                    <div style={{ width: '40px', height: '40px', backgroundColor: '#fee2e2', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
                         <File size={20} />
                     </div>
                     <div style={{ flex: 1 }}>
