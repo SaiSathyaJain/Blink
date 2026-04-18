@@ -75,7 +75,7 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
   };
 
   const filteredUsers = allUsers.filter(u =>
-    u.full_name.toLowerCase().includes(dmSearch.toLowerCase())
+    (u.full_name || '').toLowerCase().includes(dmSearch.toLowerCase())
   );
 
   const getBadge = (channelId) => {
