@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { MessageSquare, Mail, Lock, Eye, EyeOff, User } from 'lucide-react';
 
-const API = 'https://blink.sathyajain9.workers.dev';
+const API = 'https://blinkv2.saisathyajain.workers.dev';
 
 const Login = ({ onLogin }) => {
   const [mode, setMode] = useState('login'); // 'login' | 'register'
