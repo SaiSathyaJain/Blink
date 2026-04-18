@@ -13,6 +13,8 @@ import {
   Hash,
   File
 } from 'lucide-react';
+import Picker from '@emoji-mart/react';
+import data from '@emoji-mart/data';
 
 import FileModal from './FileModal';
 import ProfileSidebar from './ProfileSidebar';
@@ -32,9 +34,11 @@ const ChatArea = ({ channel, user }) => {
   const [showProfile, setShowProfile] = useState(false);
   const [profileUser, setProfileUser] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const wsRef = useRef(null);
   const scrollRef = useRef(null);
   const typingTimeouts = useRef({});
+  const emojiPickerRef = useRef(null);
 
   useEffect(() => {
     if (!channel) return;
@@ -89,6 +93,21 @@ const ChatArea = ({ channel, user }) => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(e.target)) {
+        setShowEmojiPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleEmojiSelect = (emoji) => {
+    setInputText(prev => prev + emoji.native);
+    setShowEmojiPicker(false);
+  };
 
   const handleSend = () => {
     if (!inputText.trim() || !wsRef.current) return;
@@ -230,7 +249,25 @@ const ChatArea = ({ channel, user }) => {
               </button>
               <button className="text-muted"><ImageIcon size={20} /></button>
               <button className="text-muted"><AtSign size={20} /></button>
-              <button className="text-muted"><Smile size={20} /></button>
+              <div style={{ position: 'relative' }} ref={emojiPickerRef}>
+                <button
+                  className="text-muted"
+                  onClick={() => setShowEmojiPicker(prev => !prev)}
+                >
+                  <Smile size={20} />
+                </button>
+                {showEmojiPicker && (
+                  <div style={{ position: 'absolute', bottom: '2.5rem', left: 0, zIndex: 100 }}>
+                    <Picker
+                      data={data}
+                      onEmojiSelect={handleEmojiSelect}
+                      theme="light"
+                      previewPosition="none"
+                      skinTonePosition="none"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
             <textarea
               className="message-input"
