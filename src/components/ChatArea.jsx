@@ -7,7 +7,7 @@ import {
   Send,
   Search,
   Users,
-  Pin,
+  FolderOpen,
   Info,
   Download,
   Hash,
@@ -18,6 +18,7 @@ import data from '@emoji-mart/data';
 
 import FileModal from './FileModal';
 import ProfileSidebar from './ProfileSidebar';
+import FileSidebar from './FileSidebar';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
 const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
@@ -54,6 +55,7 @@ const ChatArea = ({ channel, user }) => {
   const [profileUser, setProfileUser] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
   const wsRef = useRef(null);
   const scrollRef = useRef(null);
   const typingTimeouts = useRef({});
@@ -172,7 +174,14 @@ const ChatArea = ({ channel, user }) => {
             <button onClick={() => openProfile(null)} className="text-muted" style={{ display: 'flex', alignItems: 'center' }}>
               <Users size={18} />
             </button>
-            <Pin size={18} />
+            <button
+              onClick={() => { setShowFiles(f => !f); setShowProfile(false); }}
+              className="text-muted"
+              style={{ display: 'flex', alignItems: 'center', color: showFiles ? 'var(--primary)' : undefined }}
+              title="Channel files"
+            >
+              <FolderOpen size={18} />
+            </button>
             <Info size={18} />
           </div>
         </header>
@@ -325,6 +334,13 @@ const ChatArea = ({ channel, user }) => {
         <ProfileSidebar
           user={profileUser}
           onClose={() => setShowProfile(false)}
+        />
+      )}
+
+      {showFiles && !showProfile && (
+        <FileSidebar
+          messages={messages}
+          onClose={() => setShowFiles(false)}
         />
       )}
 
