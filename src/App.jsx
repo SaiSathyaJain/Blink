@@ -39,6 +39,12 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (user) {
+      setTimeout(() => addToast({ id: 'test', name: 'blink', type: 'CHANNEL' }, null, 'Toast is working!'), 1000);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user) return;
     const token = localStorage.getItem('blink_token');
     const headers = { Authorization: `Bearer ${token}` };
@@ -124,7 +130,6 @@ const App = () => {
   const handleLogin = (u) => {
     setUser(u);
     lastReadRef.current = {};
-    setTimeout(() => addToast({ id: 'welcome', name: 'blink', type: 'CHANNEL' }, null, 'Welcome back! Toasts are working.'), 800);
   };
 
   if (!user) return <Login onLogin={handleLogin} />;
