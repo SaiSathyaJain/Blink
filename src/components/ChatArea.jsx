@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from '
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
@@ -250,13 +250,15 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const typingTimeouts = useRef({});
   const emojiPickerRef = useRef(null);
   const isAdmin = user.role === 'OWNER' || user.role === 'ADMIN';
+  const [notifPermission, setNotifPermission] = useState(() =>
+    'Notification' in window ? Notification.permission : 'unsupported'
+  );
 
-  // Browser notification permission
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-  }, []);
+  const requestNotifPermission = async () => {
+    if (!('Notification' in window) || notifPermission === 'denied') return;
+    const result = await Notification.requestPermission();
+    setNotifPermission(result);
+  };
 
   // Load messages + pinned + connect WS on channel change
   useEffect(() => {
@@ -432,6 +434,14 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                 <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{pinnedMessages.length}</span>
               </button>
             )}
+            <button
+              onClick={requestNotifPermission}
+              className="text-muted"
+              title={notifPermission === 'granted' ? 'Notifications enabled' : notifPermission === 'denied' ? 'Notifications blocked in browser settings' : 'Enable notifications'}
+              style={{ display: 'flex', color: notifPermission === 'granted' ? 'var(--primary)' : undefined }}
+            >
+              {notifPermission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
+            </button>
             <Search size={18} className="text-muted" />
             <button onClick={() => { setShowProfile(p => !p); setShowFiles(false); }} className="text-muted" style={{ display: 'flex', color: showProfile ? 'var(--primary)' : undefined }}>
               <Users size={18} />
