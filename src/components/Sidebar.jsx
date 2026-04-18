@@ -47,7 +47,7 @@ const Sidebar = ({ currentView, currentChannel, channels, onSelectChannel, onVie
       </nav>
 
       {(user.role === 'OWNER' || user.role === 'ADMIN') && (
-        <nav className="nav-section" style={{ marginTop: 'auto' }}>
+        <nav className="nav-section">
           <a
             href="#"
             className={`nav-item ${currentView === 'admin' ? 'active' : ''}`}
@@ -60,13 +60,14 @@ const Sidebar = ({ currentView, currentChannel, channels, onSelectChannel, onVie
       )}
 
       <div className="user-profile" style={{
+        marginTop: 'auto',
         display: 'flex',
         alignItems: 'center',
-        gap: '0.75rem',
+        gap: '0.5rem',
         padding: '1rem 0',
         borderTop: '1px solid var(--border)'
       }}>
-        <div className="avatar" style={{ position: 'relative' }}>
+        <div className="avatar" style={{ position: 'relative', flexShrink: 0 }}>
           <div style={{
             position: 'absolute',
             bottom: '0',
@@ -78,14 +79,14 @@ const Sidebar = ({ currentView, currentChannel, channels, onSelectChannel, onVie
             border: '2px solid var(--bg-sidebar)'
           }}></div>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{user.full_name}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.full_name}</div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Online</div>
         </div>
-        <button onClick={onToggleTheme} className="text-muted" title="Toggle theme">
+        <button onClick={onToggleTheme} className="text-muted" title="Toggle theme" style={{ flexShrink: 0 }}>
           {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
         </button>
-        <button onClick={handleLogout} className="text-muted" title="Logout">
+        <button onClick={handleLogout} className="text-muted" title="Logout" style={{ flexShrink: 0 }}>
           <LogOut size={16} />
         </button>
       </div>
