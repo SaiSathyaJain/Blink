@@ -41,6 +41,7 @@ async function runMigrations(env) {
     )`,
     `CREATE TABLE IF NOT EXISTS invite_links (
       code TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
       created_by TEXT NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       expires_at TIMESTAMP
@@ -58,6 +59,7 @@ async function runMigrations(env) {
     'ALTER TABLE messages ADD COLUMN reply_to_id TEXT',
     'ALTER TABLE messages ADD COLUMN edited_at TIMESTAMP',
     'ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0',
+    "ALTER TABLE invite_links ADD COLUMN channel_id TEXT NOT NULL DEFAULT ''",
   ];
   for (const a of alters) { try { await env.DB.prepare(a).run(); } catch {} }
 }
@@ -536,22 +538,29 @@ async function handleSearch(request, env) {
 async function handleCreateInvite(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  const { channelId } = body;
+  if (!channelId) return corsResponse(JSON.stringify({ error: 'channelId required' }), 400);
+  const channel = await env.DB.prepare("SELECT id, name FROM channels WHERE id = ? AND type != 'DM'").bind(channelId).first();
+  if (!channel) return corsResponse(JSON.stringify({ error: 'Channel not found' }), 404);
   const code = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  await env.DB.prepare('INSERT INTO invite_links (code, created_by, expires_at) VALUES (?, ?, ?)')
-    .bind(code, user.id, expiresAt).run();
-  return corsResponse(JSON.stringify({ code, expiresAt }));
+  await env.DB.prepare('INSERT INTO invite_links (code, channel_id, created_by, expires_at) VALUES (?, ?, ?, ?)')
+    .bind(code, channelId, user.id, expiresAt).run();
+  return corsResponse(JSON.stringify({ code, channelId, channelName: channel.name, expiresAt }));
 }
 
 async function handleJoinInvite(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
   const code = new URL(request.url).pathname.split('/').pop();
-  const invite = await env.DB.prepare('SELECT code, expires_at FROM invite_links WHERE code = ?').bind(code).first();
+  const invite = await env.DB.prepare('SELECT code, channel_id, expires_at FROM invite_links WHERE code = ?').bind(code).first();
   if (!invite) return corsResponse(JSON.stringify({ error: 'Invalid invite link' }), 404);
   if (new Date(invite.expires_at) < new Date()) return corsResponse(JSON.stringify({ error: 'Invite link expired' }), 410);
-  await env.DB.prepare("INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) SELECT id, ?, 'MEMBER' FROM channels WHERE type != 'DM'").bind(user.id).run();
-  return corsResponse(JSON.stringify({ success: true }));
+  await env.DB.prepare("INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) VALUES (?, ?, 'MEMBER')")
+    .bind(invite.channel_id, user.id).run();
+  const channel = await env.DB.prepare('SELECT id, name FROM channels WHERE id = ?').bind(invite.channel_id).first();
+  return corsResponse(JSON.stringify({ success: true, channel }));
 }
 
 // ── Read Receipts ─────────────────────────────────────────────────────────

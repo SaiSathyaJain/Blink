@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from '
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle, Bell, BellOff,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
@@ -298,7 +298,24 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const [linkPreviews, setLinkPreviews] = useState({});
   const [jumpingTo, setJumpingTo] = useState(null);
   const [readReceipts, setReadReceipts] = useState([]);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const inputRef = useRef(null);
+
+  const copyChannelInvite = async () => {
+    const token = localStorage.getItem('blink_token');
+    try {
+      const res = await fetch(`${API}/api/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channelId: channel.id }),
+      });
+      const { code } = await res.json();
+      const link = `${window.location.origin}?invite=${code}`;
+      await navigator.clipboard.writeText(link);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2500);
+    } catch {}
+  };
 
   const requestNotifPermission = async () => {
     if (!('Notification' in window) || notifPermission === 'denied') return;
@@ -556,6 +573,12 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
               <button onClick={() => setShowPinned(p => !p)} className="text-muted" title="Pinned messages" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: showPinned ? 'var(--primary)' : undefined }}>
                 <Pin size={16} />
                 <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{pinnedMessages.length}</span>
+              </button>
+            )}
+            {channel.type !== 'DM' && (
+              <button onClick={copyChannelInvite} className="text-muted" title="Copy invite link for this channel"
+                style={{ display: 'flex', color: inviteCopied ? '#10b981' : undefined }}>
+                {inviteCopied ? <Check size={18} /> : <Link2 size={18} />}
               </button>
             )}
             <button
