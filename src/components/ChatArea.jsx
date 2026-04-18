@@ -704,7 +704,20 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
         )}
 
         {/* Input */}
-        <div className="input-area">
+        <div className="input-area" style={{ position: 'relative' }}>
+          {filteredMentions.length > 0 && (
+            <div style={{ position: 'absolute', bottom: '100%', left: '1.5rem', right: '1.5rem', backgroundColor: 'var(--bg-chat)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: 'var(--shadow-md)', zIndex: 200, overflow: 'hidden', marginBottom: '4px' }}>
+              {filteredMentions.map((u, i) => (
+                <button key={u.id} onClick={() => insertMention(u)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', background: i === mentionIndex ? 'var(--primary-light)' : 'none', textAlign: 'left' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>
+                    {(u.full_name || '?')[0]}
+                  </div>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>{u.full_name}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {replyTo && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.75rem', backgroundColor: 'var(--bg-main)', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid var(--border)' }}>
               <Reply size={13} style={{ color: 'var(--primary)', flexShrink: 0 }} />
@@ -729,19 +742,6 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                 )}
               </div>
             </div>
-            {filteredMentions.length > 0 && (
-              <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, backgroundColor: 'var(--bg-chat)', border: '1px solid var(--border)', borderRadius: '10px', boxShadow: 'var(--shadow-md)', zIndex: 200, overflow: 'hidden', marginBottom: '4px' }}>
-                {filteredMentions.map((u, i) => (
-                  <button key={u.id} onClick={() => insertMention(u)}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '0.625rem', padding: '0.5rem 0.75rem', background: i === mentionIndex ? 'var(--primary-light)' : 'none', textAlign: 'left' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', flexShrink: 0 }}>
-                      {(u.full_name || '?')[0]}
-                    </div>
-                    <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>{u.full_name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
             <textarea
               ref={inputRef}
               className="message-input"
