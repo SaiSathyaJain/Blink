@@ -22,6 +22,25 @@ import ProfileSidebar from './ProfileSidebar';
 const API = 'https://blinkv2.saisathyajain.workers.dev';
 const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
 
+const EMOJI_REGEX = /(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
+
+const isEmojiOnly = (text) => text.replace(EMOJI_REGEX, '').trim() === '';
+
+const renderText = (text) => {
+  if (!text) return null;
+  const emojiOnly = isEmojiOnly(text);
+  const parts = text.split(EMOJI_REGEX);
+  return (
+    <span className={emojiOnly ? 'emoji-only' : ''}>
+      {parts.map((part, i) =>
+        EMOJI_REGEX.test(part)
+          ? <span key={i} className="emoji-animated">{part}</span>
+          : part
+      )}
+    </span>
+  );
+};
+
 const formatTime = (ts) => {
   if (!ts) return '';
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -182,7 +201,7 @@ const ChatArea = ({ channel, user }) => {
                   </span>
                   <span className="timestamp">{formatTime(msg.timestamp)}</span>
                 </div>
-                <div className="text">{msg.content}</div>
+                <div className="text">{renderText(msg.content)}</div>
 
                 {msg.file && (
                   <div style={{
