@@ -104,16 +104,22 @@ const App = () => {
   const handleCreateDM = useCallback((dm) => {
     setDms(prev => {
       if (prev.find(d => d.id === dm.id)) return prev;
-      return [dm, ...prev];
+      const next = [dm, ...prev];
+      allChannelsRef.current = [...allChannelsRef.current.filter(c => c.id !== dm.id), dm];
+      return next;
     });
     handleSelectChannel(dm);
   }, [handleSelectChannel]);
 
   const handleNewMessage = useCallback((channelId, meta) => {
-    if (channelId !== currentChannel?.id) {
+    const isActive = channelId === currentChannel?.id;
+    if (!isActive) {
       setUnreadCounts(prev => ({ ...prev, [channelId]: (prev[channelId] || 0) + 1 }));
+    }
+    // Show toast for every incoming message from another user
+    if (meta) {
       const ch = allChannelsRef.current.find(c => c.id === channelId);
-      if (ch && meta) addToast(ch, meta.senderName, meta.preview);
+      if (ch) addToast(ch, meta.senderName, meta.preview);
     }
   }, [currentChannel?.id, addToast]);
 
