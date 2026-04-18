@@ -4,7 +4,7 @@
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -64,14 +64,12 @@ async function signJWT(payload, secret) {
   return `${header}.${body}.${sigStr}`;
 }
 
-
 // ── Main handler ──────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -84,6 +82,10 @@ export default {
       return handleLogin(request, env);
     }
 
+    if (url.pathname === '/api/channels' && request.method === 'GET') {
+      return handleChannels(request, env);
+    }
+
     if (url.pathname.startsWith('/api/ws')) {
       return handleWebSocket(request, env);
     }
@@ -92,8 +94,8 @@ export default {
       return handleMessages(request, env);
     }
 
-    if (url.pathname.startsWith('/api/user')) {
-      return handleUser(request, env);
+    if (url.pathname.startsWith('/api/admin/users')) {
+      return handleAdminUsers(request, env);
     }
 
     if (url.pathname.startsWith('/api/admin')) {
@@ -132,6 +134,14 @@ async function handleRegister(request, env) {
     'INSERT INTO users (id, email, password_hash, full_name) VALUES (?, ?, ?, ?)'
   ).bind(id, email, password_hash, full_name).run();
 
+  await env.DB.prepare(
+    'INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) SELECT id, ?, ? FROM channels'
+  ).bind(id, 'MEMBER').run();
+
+  await env.DB.prepare(
+    "INSERT INTO activity_logs (user_id, action, details) VALUES (?, 'USER_JOINED', ?)"
+  ).bind(id, `${full_name} joined the workspace`).run();
+
   const token = await signJWT({ id, email, full_name, role: 'MEMBER' }, env.JWT_SECRET);
   return corsResponse(JSON.stringify({ token, user: { id, email, full_name, role: 'MEMBER' } }), 201);
 }
@@ -163,6 +173,10 @@ async function handleLogin(request, env) {
   await env.DB.prepare('UPDATE users SET status = ?, last_active = CURRENT_TIMESTAMP WHERE id = ?')
     .bind('ONLINE', user.id).run();
 
+  await env.DB.prepare(
+    "INSERT INTO activity_logs (user_id, action, details) VALUES (?, 'USER_LOGIN', ?)"
+  ).bind(user.id, `${user.full_name} signed in`).run();
+
   const token = await signJWT(
     { id: user.id, email: user.email, full_name: user.full_name, role: user.role },
     env.JWT_SECRET
@@ -173,7 +187,16 @@ async function handleLogin(request, env) {
   }));
 }
 
-// ── Existing handlers ─────────────────────────────────────────────────────
+// ── Channel handler ───────────────────────────────────────────────────────
+
+async function handleChannels(_request, env) {
+  const { results } = await env.DB.prepare(
+    'SELECT id, name, description, type FROM channels ORDER BY name ASC'
+  ).all();
+  return corsResponse(JSON.stringify(results));
+}
+
+// ── WebSocket handler ─────────────────────────────────────────────────────
 
 async function handleWebSocket(request, env) {
   const upgradeHeader = request.headers.get('Upgrade');
@@ -187,25 +210,41 @@ async function handleWebSocket(request, env) {
   return room.fetch(request);
 }
 
+// ── Message handler ───────────────────────────────────────────────────────
+
 async function handleMessages(request, env) {
   const { pathname } = new URL(request.url);
   const channelId = pathname.split('/').pop() || 'general';
   const { results } = await env.DB.prepare(
-    'SELECT m.*, u.full_name, u.avatar_url FROM messages m JOIN users u ON m.user_id = u.id WHERE m.channel_id = ? ORDER BY m.timestamp ASC LIMIT 100'
+    'SELECT m.id, m.channel_id, m.user_id, m.content, m.type, m.timestamp, u.full_name FROM messages m JOIN users u ON m.user_id = u.id WHERE m.channel_id = ? ORDER BY m.timestamp ASC LIMIT 100'
   ).bind(channelId).all();
   return corsResponse(JSON.stringify(results));
 }
 
-async function handleUser(_request, _env) {
-  return corsResponse(JSON.stringify({ success: true, message: 'User API' }));
-}
+// ── Admin handlers ────────────────────────────────────────────────────────
 
 async function handleAdmin(_request, env) {
   const totalUsers = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first('count');
   const totalMessages = await env.DB.prepare('SELECT COUNT(*) as count FROM messages').first('count');
+  const activeToday = await env.DB.prepare(
+    "SELECT COUNT(*) as count FROM users WHERE last_active >= datetime('now', '-1 day')"
+  ).first('count');
+
+  const { results: activities } = await env.DB.prepare(
+    'SELECT al.action, al.details, al.timestamp, u.full_name FROM activity_logs al LEFT JOIN users u ON al.user_id = u.id ORDER BY al.timestamp DESC LIMIT 20'
+  ).all();
+
   return corsResponse(JSON.stringify({
-    stats: { totalUsers, totalMessages, activeToday: 42, filesUploaded: 12 }
+    stats: { totalUsers, totalMessages, activeToday, filesUploaded: 0 },
+    activities,
   }));
+}
+
+async function handleAdminUsers(_request, env) {
+  const { results } = await env.DB.prepare(
+    'SELECT id, email, full_name, role, status, last_active, created_at FROM users ORDER BY created_at DESC'
+  ).all();
+  return corsResponse(JSON.stringify(results));
 }
 
 // ── Durable Object: ChatRoom ──────────────────────────────────────────────
@@ -236,6 +275,8 @@ export class ChatRoom {
         }
         if (data.type === 'message') {
           const messageId = crypto.randomUUID();
+          const timestamp = new Date().toISOString();
+
           await this.env.DB.prepare(
             'INSERT INTO messages (id, channel_id, user_id, content, type) VALUES (?, ?, ?, ?, ?)'
           ).bind(messageId, data.channelId, data.userId, data.content, 'TEXT').run();
@@ -248,7 +289,7 @@ export class ChatRoom {
               user_id: data.userId,
               content: data.content,
               full_name: data.userName,
-              timestamp: new Date().toISOString()
+              timestamp,
             }
           }, data.channelId);
         }

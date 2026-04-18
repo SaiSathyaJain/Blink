@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Paperclip, 
-  Image as ImageIcon, 
-  AtSign, 
-  Smile, 
-  Send, 
-  Search, 
-  Users, 
-  Pin, 
+import {
+  Paperclip,
+  Image as ImageIcon,
+  AtSign,
+  Smile,
+  Send,
+  Search,
+  Users,
+  Pin,
   Info,
   Download,
   Hash,
@@ -17,92 +17,98 @@ import {
 import FileModal from './FileModal';
 import ProfileSidebar from './ProfileSidebar';
 
+const API = 'https://blinkv2.saisathyajain.workers.dev';
+const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
+
+const formatTime = (ts) => {
+  if (!ts) return '';
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 const ChatArea = ({ channel, user }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [profileUser, setProfileUser] = useState(null);
-  const [ws, setWs] = useState(null);
+  const wsRef = useRef(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    // Initial messages fetch
-    const fetchHistory = async () => {
-        // Mock fetch from /api/messages/${channel.id}
-        const mockHistory = [
-            { 
-                id: '1', 
-                user_id: 'alex', 
-                full_name: 'Alex Morgan', 
-                content: "Hey team! I've just updated the API documentation for the new authentication flow. Let me know if you run into any issues with the updated endpoints.",
-                timestamp: '10:42 AM',
-                reactions: [{ icon: '🚀', count: 3 }, { icon: '✅', count: 1 }]
-            },
-            { 
-                id: '2', 
-                user_id: 'kim', 
-                full_name: 'Kim Blake', 
-                content: "Thanks Alex! Here's the updated deployment diagram based on those changes.",
-                timestamp: '10:45 AM',
-                file: { name: 'deployment-v2-final.pdf', size: '4.2 MB' }
-            },
-            {
-                id: '3',
-                user_id: 'jordan',
-                full_name: 'Jordan Smith',
-                content: "The new dashboard UI looks amazing in dark mode. Check out this screenshot:",
-                timestamp: '10:50 AM',
-                image: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?q=80&w=1000&auto=format&fit=crop'
-            }
-        ];
-        setMessages(mockHistory);
+    if (!channel) return;
+
+    setMessages([]);
+
+    // Fetch message history
+    const token = localStorage.getItem('blink_token');
+    fetch(`${API}/api/messages/${channel.id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setMessages(data);
+      })
+      .catch(() => {});
+
+    // Connect WebSocket
+    const socket = new WebSocket(`${WS_URL}/api/ws?room=${channel.id}`);
+
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: 'join', channelId: channel.id }));
     };
 
-    fetchHistory();
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'new_message') {
+          setMessages(prev => [...prev, data.message]);
+        }
+      } catch {}
+    };
 
-    // Setup WebSocket (In real app, pointing to env.API_BASE_URL)
-    // const socket = new WebSocket(`ws://localhost:8787/api/ws?room=${channel.id}`);
-    // setWs(socket);
-    // return () => socket.close();
+    wsRef.current = socket;
+
+    return () => {
+      socket.close();
+      wsRef.current = null;
+    };
   }, [channel]);
 
   useEffect(() => {
     if (scrollRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
   const handleSend = () => {
-    if (!inputText.trim()) return;
-    
-    const newMessage = {
-        id: Date.now().toString(),
-        user_id: user.id,
-        full_name: user.name,
-        content: inputText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+    if (!inputText.trim() || !wsRef.current) return;
 
-    setMessages([...messages, newMessage]);
+    wsRef.current.send(JSON.stringify({
+      type: 'message',
+      channelId: channel.id,
+      userId: user.id,
+      userName: user.full_name,
+      content: inputText.trim(),
+    }));
+
     setInputText('');
   };
 
   const handleFileSend = ({ file, caption }) => {
-      const newMessage = {
-          id: Date.now().toString(),
-          user_id: user.id,
-          full_name: user.name,
-          content: caption || '',
-          file: { name: file.name, size: `${(file.size / 1024).toFixed(1)} KB` },
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages([...messages, newMessage]);
+    const newMessage = {
+      id: Date.now().toString(),
+      user_id: user.id,
+      full_name: user.full_name,
+      content: caption || '',
+      file: { name: file.name, size: `${(file.size / 1024).toFixed(1)} KB` },
+      timestamp: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, newMessage]);
   };
 
   const openProfile = (u) => {
-      setProfileUser(u || { name: 'Priya Sharma', username: 'priya.sharma' });
-      setShowProfile(true);
+    setProfileUser(u);
+    setShowProfile(true);
   };
 
   return (
@@ -112,104 +118,78 @@ const ChatArea = ({ channel, user }) => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Hash size={20} className="text-muted" />
             <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{channel.name}</h2>
-            <div style={{ 
-                fontSize: '0.75rem', 
-                backgroundColor: 'var(--primary-light)', 
-                color: 'var(--primary)', 
-                padding: '2px 8px', 
-                borderRadius: '10px',
-                marginLeft: '0.5rem'
-            }}>
-                12 MEMBERS
-            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }} className="text-muted">
-              <Search size={18} />
-              <button 
-                onClick={() => openProfile()} 
-                className="text-muted"
-                style={{ display: 'flex', alignItems: 'center' }}
-              >
-                  <Users size={18} />
-              </button>
-              <Pin size={18} />
-              <Info size={18} />
+            <Search size={18} />
+            <button onClick={() => openProfile(null)} className="text-muted" style={{ display: 'flex', alignItems: 'center' }}>
+              <Users size={18} />
+            </button>
+            <Pin size={18} />
+            <Info size={18} />
           </div>
         </header>
 
         <div className="chat-area" ref={scrollRef}>
+          {messages.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem', fontSize: '0.9rem' }}>
+              No messages yet. Be the first to say something in #{channel.name}!
+            </div>
+          )}
           {messages.map(msg => (
             <div key={msg.id} className="message fade-in">
-              <div 
-                className="avatar" 
+              <div
+                className="avatar"
                 style={{ cursor: 'pointer' }}
                 onClick={() => openProfile({ name: msg.full_name, id: msg.user_id })}
               ></div>
               <div className="message-content">
                 <div className="message-header">
-                  <span className="user-name" style={{ cursor: 'pointer' }} onClick={() => openProfile({ name: msg.full_name, id: msg.user_id })}>{msg.full_name}</span>
-                  <span className="timestamp">{msg.timestamp}</span>
+                  <span
+                    className="user-name"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openProfile({ name: msg.full_name, id: msg.user_id })}
+                  >
+                    {msg.full_name}
+                  </span>
+                  <span className="timestamp">{formatTime(msg.timestamp)}</span>
                 </div>
                 <div className="text">{msg.content}</div>
-                
-                {msg.reactions && (
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        {msg.reactions.map((r, i) => (
-                            <div key={i} style={{ 
-                                padding: '2px 6px', 
-                                backgroundColor: 'var(--bg-main)', 
-                                border: '1px solid var(--border)',
-                                borderRadius: '6px',
-                                fontSize: '0.75rem',
-                                display: 'flex',
-                                gap: '4px'
-                            }}>
-                                {r.icon} <span style={{ fontWeight: 600 }}>{r.count}</span>
-                            </div>
-                        ))}
-                    </div>
-                )}
 
                 {msg.file && (
-                    <div style={{ 
-                        marginTop: '0.75rem', 
-                        padding: '1rem', 
-                        backgroundColor: 'var(--bg-main)', 
-                        borderRadius: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '1rem',
-                        maxWidth: '400px',
-                        border: '1px solid var(--border)'
+                  <div style={{
+                    marginTop: '0.75rem',
+                    padding: '1rem',
+                    backgroundColor: 'var(--bg-main)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    maxWidth: '400px',
+                    border: '1px solid var(--border)'
+                  }}>
+                    <div style={{
+                      width: '40px', height: '40px',
+                      backgroundColor: 'var(--primary-light)',
+                      borderRadius: '8px', display: 'flex',
+                      alignItems: 'center', justifyContent: 'center',
+                      color: 'var(--primary)'
                     }}>
-                        <div style={{ 
-                            width: '40px', 
-                            height: '40px', 
-                            backgroundColor: 'var(--primary-light)', 
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--primary)'
-                        }}>
-                            <File size={20} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{msg.file.name}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>PDF • {msg.file.size}</div>
-                        </div>
-                        <Download size={18} className="text-muted" />
+                      <File size={20} />
                     </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{msg.file.name}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{msg.file.size}</div>
+                    </div>
+                    <Download size={18} className="text-muted" />
+                  </div>
                 )}
 
                 {msg.image && (
-                    <img src={msg.image} alt="attachment" style={{ 
-                        maxWidth: '100%', 
-                        maxHeight: '400px', 
-                        borderRadius: '12px', 
-                        marginTop: '1rem',
-                        border: '1px solid var(--border)'
-                    }} />
+                  <img src={msg.image} alt="attachment" style={{
+                    maxWidth: '100%', maxHeight: '400px',
+                    borderRadius: '12px', marginTop: '1rem',
+                    border: '1px solid var(--border)'
+                  }} />
                 )}
               </div>
             </div>
@@ -219,30 +199,27 @@ const ChatArea = ({ channel, user }) => {
         <div className="input-area">
           <div className="input-container" style={{ border: '1px solid var(--border)', padding: '1rem' }}>
             <div style={{ display: 'flex', gap: '1rem' }} className="text-muted">
-              <button 
-                className="text-muted"
-                onClick={() => setIsModalOpen(true)}
-              >
-                  <Paperclip size={20} />
+              <button className="text-muted" onClick={() => setIsModalOpen(true)}>
+                <Paperclip size={20} />
               </button>
               <button className="text-muted"><ImageIcon size={20} /></button>
               <button className="text-muted"><AtSign size={20} /></button>
               <button className="text-muted"><Smile size={20} /></button>
             </div>
-            <textarea 
-              className="message-input" 
+            <textarea
+              className="message-input"
               placeholder={`Message #${channel.name}...`}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                  }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
               }}
             />
-            <button 
-              className="send-btn" 
+            <button
+              className="send-btn"
               onClick={handleSend}
               disabled={!inputText.trim()}
             >
@@ -253,15 +230,15 @@ const ChatArea = ({ channel, user }) => {
       </div>
 
       {showProfile && (
-          <ProfileSidebar 
-            user={profileUser} 
-            onClose={() => setShowProfile(false)} 
-          />
+        <ProfileSidebar
+          user={profileUser}
+          onClose={() => setShowProfile(false)}
+        />
       )}
 
-      <FileModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
+      <FileModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
         onSend={handleFileSend}
       />
     </div>

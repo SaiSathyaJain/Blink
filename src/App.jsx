@@ -4,18 +4,14 @@ import ChatArea from './components/ChatArea';
 import AdminPanel from './components/AdminPanel';
 import Login from './components/Login';
 
-const App = () => {
-  const [user, setUser] = useState(null); // Simple auth state
-  const [currentView, setCurrentView] = useState('chat'); // 'chat' or 'admin'
-  const [currentChannel, setCurrentChannel] = useState({ id: 'engineering', name: 'engineering' });
-  const [channels, setChannels] = useState([
-    { id: 'general', name: 'general' },
-    { id: 'engineering', name: 'engineering' },
-    { id: 'design', name: 'design' },
-    { id: 'random', name: 'random' },
-  ]);
+const API = 'https://blinkv2.saisathyajain.workers.dev';
 
-  // Mock checking session
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [currentView, setCurrentView] = useState('chat');
+  const [currentChannel, setCurrentChannel] = useState(null);
+  const [channels, setChannels] = useState([]);
+
   useEffect(() => {
     const savedUser = localStorage.getItem('blink_user');
     if (savedUser) {
@@ -23,29 +19,45 @@ const App = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('blink_token');
+    fetch(`${API}/api/channels`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setChannels(data);
+          setCurrentChannel(data[0]);
+        }
+      })
+      .catch(() => {});
+  }, [user]);
+
   if (!user) {
     return <Login onLogin={setUser} />;
   }
 
   return (
     <div className="app-container">
-      <Sidebar 
+      <Sidebar
         currentView={currentView}
         currentChannel={currentChannel}
+        channels={channels}
         onSelectChannel={(ch) => {
-            setCurrentChannel(ch);
-            setCurrentView('chat');
+          setCurrentChannel(ch);
+          setCurrentView('chat');
         }}
         onViewChange={setCurrentView}
         user={user}
       />
-      
       <main className="main-content">
-        {currentView === 'chat' ? (
+        {currentView === 'chat' && currentChannel ? (
           <ChatArea channel={currentChannel} user={user} />
-        ) : (
+        ) : currentView === 'admin' ? (
           <AdminPanel />
-        )}
+        ) : null}
       </main>
     </div>
   );
