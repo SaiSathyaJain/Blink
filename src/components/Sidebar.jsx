@@ -21,6 +21,7 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
   const handleLogout = () => {
     localStorage.removeItem('blink_user');
     localStorage.removeItem('blink_token');
+    localStorage.removeItem('blink_theme');
     window.location.reload();
   };
 
