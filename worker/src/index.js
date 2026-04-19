@@ -210,6 +210,7 @@ async function handleLogin(request, env) {
 async function handleGoogleAuth(request, env) {
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
   const { credential } = body;
+
   if (!credential) return corsResponse(JSON.stringify({ error: 'Missing credential' }), 400);
 
   const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
@@ -218,6 +219,7 @@ async function handleGoogleAuth(request, env) {
   if (payload.aud !== env.GOOGLE_CLIENT_ID) return corsResponse(JSON.stringify({ error: 'Token audience mismatch' }), 401);
 
   const { email, name, picture } = payload;
+
   let user = await env.DB.prepare('SELECT id, email, full_name, role, avatar_url FROM users WHERE email = ?').bind(email).first();
 
   if (!user) {
@@ -256,7 +258,7 @@ async function handleUpdateProfile(request, env) {
 
 // ── Channels ──────────────────────────────────────────────────────────────
 
-async function handleChannels(request, env) {
+async function handleChannels(_request, env) {
   const { results } = await env.DB.prepare(
     "SELECT id, name, description, type FROM channels WHERE type != 'DM' ORDER BY name ASC"
   ).all();
@@ -458,8 +460,8 @@ async function handleAdmin(request, env) {
   return corsResponse(JSON.stringify({ stats: { totalUsers, totalMessages, activeToday, filesUploaded: 0 }, activities }));
 }
 
-async function handleDeleteUser(userId, env, request) {
-  const deny = requireAdmin(request);
+async function handleDeleteUser(userId, env, _request) {
+  const deny = requireAdmin(_request);
   if (deny) return deny;
   await env.DB.prepare('DELETE FROM message_reactions WHERE user_id = ?').bind(userId).run();
   await env.DB.prepare('DELETE FROM activity_logs WHERE user_id = ?').bind(userId).run();
@@ -481,7 +483,7 @@ async function handleAdminUsers(request, env) {
 
 // ── Link Preview ─────────────────────────────────────────────────────────
 
-async function handleLinkPreview(request, env) {
+async function handleLinkPreview(request, _env) {
   const rawUrl = new URL(request.url).searchParams.get('url') || '';
   if (!rawUrl) return corsResponse(JSON.stringify({ error: 'URL required' }), 400);
   try {
@@ -593,7 +595,7 @@ export class ChatRoom {
     this.sessions = [];
   }
 
-  async fetch(request) {
+  async fetch(_request) {
     const [client, server] = Object.values(new WebSocketPair());
     await this.handleSession(server);
     return new Response(null, { status: 101, webSocket: client });
