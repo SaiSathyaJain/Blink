@@ -209,15 +209,27 @@ async function handleLogin(request, env) {
 
 async function handleGoogleAuth(request, env) {
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
-  const { credential } = body;
-  if (!credential) return corsResponse(JSON.stringify({ error: 'Missing credential' }), 400);
+  const { access_token, credential } = body;
 
-  const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
-  const payload = await res.json();
-  if (!res.ok || payload.error) return corsResponse(JSON.stringify({ error: 'Invalid Google token' }), 401);
-  if (payload.aud !== env.GOOGLE_CLIENT_ID) return corsResponse(JSON.stringify({ error: 'Token audience mismatch' }), 401);
+  let email, name, picture;
 
-  const { email, name, picture } = payload;
+  if (access_token) {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    const payload = await res.json();
+    if (!res.ok || !payload.email) return corsResponse(JSON.stringify({ error: 'Invalid Google token' }), 401);
+    ({ email, name, picture } = payload);
+  } else if (credential) {
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+    const payload = await res.json();
+    if (!res.ok || payload.error) return corsResponse(JSON.stringify({ error: 'Invalid Google token' }), 401);
+    if (payload.aud !== env.GOOGLE_CLIENT_ID) return corsResponse(JSON.stringify({ error: 'Token audience mismatch' }), 401);
+    ({ email, name, picture } = payload);
+  } else {
+    return corsResponse(JSON.stringify({ error: 'Missing token' }), 400);
+  }
+
   let user = await env.DB.prepare('SELECT id, email, full_name, role, avatar_url FROM users WHERE email = ?').bind(email).first();
 
   if (!user) {
@@ -458,8 +470,8 @@ async function handleAdmin(request, env) {
   return corsResponse(JSON.stringify({ stats: { totalUsers, totalMessages, activeToday, filesUploaded: 0 }, activities }));
 }
 
-async function handleDeleteUser(userId, env, request) {
-  const deny = requireAdmin(request);
+async function handleDeleteUser(userId, env, _request) {
+  const deny = requireAdmin(_request);
   if (deny) return deny;
   await env.DB.prepare('DELETE FROM message_reactions WHERE user_id = ?').bind(userId).run();
   await env.DB.prepare('DELETE FROM activity_logs WHERE user_id = ?').bind(userId).run();
