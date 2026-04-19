@@ -19,7 +19,7 @@ jobs:
       - run: npx vite build
 
       - name: Deploy to Cloudflare Pages
-        run: npx wrangler pages deploy dist --project-name=blinkv2
+        run: npx wrangler pages deploy dist --project-name=blinkv2 --branch=main
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 1966c03f4aadbbe46523c450e7c71c51
