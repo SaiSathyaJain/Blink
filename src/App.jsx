@@ -21,6 +21,7 @@ const App = () => {
   const lastReadRef = useRef({});
   const allChannelsRef = useRef([]);
   const currentChannelRef = useRef(null);
+  const notifSocketsRef = useRef({});
 
   const dismissToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -94,30 +95,41 @@ const App = () => {
   // Keep currentChannelRef in sync to avoid stale closure in notification WS
   useEffect(() => { currentChannelRef.current = currentChannel; }, [currentChannel]);
 
-  // Global notification WebSocket — receives messages from ALL channels for this user
+  // Subscribe to every channel's WS for cross-channel notifications and unread counts
   useEffect(() => {
     if (!user) return;
-    const socket = new WebSocket(`${WS_URL}/api/ws?room=notify:${user.id}`);
-    socket.onopen = () => socket.send(JSON.stringify({ type: 'join', channelId: `notify:${user.id}`, userId: user.id }));
-    socket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type !== 'notification') return;
-        const msg = data.message;
-        if (!msg || msg.user_id === user.id) return;
-        const isCurrentChannel = data.channelId === currentChannelRef.current?.id;
-        if (Notification.permission === 'granted' && (document.hidden || !isCurrentChannel)) {
-          const ch = allChannelsRef.current.find(c => c.id === data.channelId);
-          const chName = ch?.type === 'DM' ? ch.other_user_name : `#${ch?.name || data.channelId}`;
-          new Notification(`${msg.full_name} → ${chName}`, {
-            body: (msg.content || '').slice(0, 100),
-            icon: '/favicon.ico',
-          });
-        }
-      } catch {}
-    };
-    return () => socket.close();
-  }, [user?.id]);
+    const allChs = [...channels, ...dms];
+    const currentIds = new Set(allChs.map(c => c.id));
+
+    // Close sockets for channels no longer in list
+    for (const [id, ws] of Object.entries(notifSocketsRef.current)) {
+      if (!currentIds.has(id)) { ws.close(); delete notifSocketsRef.current[id]; }
+    }
+
+    // Open sockets for new channels
+    for (const ch of allChs) {
+      if (notifSocketsRef.current[ch.id]) continue;
+      const ws = new WebSocket(`${WS_URL}/api/ws?room=${ch.id}`);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'join', channelId: ch.id, userId: user.id }));
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type !== 'new_message') return;
+          const msg = data.message;
+          if (!msg || msg.user_id === user.id) return;
+          if (ch.id === currentChannelRef.current?.id) return; // ChatArea handles current channel
+          setUnreadCounts(prev => ({ ...prev, [ch.id]: (prev[ch.id] || 0) + 1 }));
+          if (Notification.permission === 'granted') {
+            const title = ch.type === 'DM' ? msg.full_name : `#${ch.name}`;
+            new Notification(title, { body: (msg.content || '').slice(0, 100), icon: '/favicon.ico' });
+          }
+          if (!document.hidden) addToast(ch, msg.full_name, (msg.content || '').slice(0, 60));
+        } catch {}
+      };
+      ws.onclose = () => { delete notifSocketsRef.current[ch.id]; };
+      notifSocketsRef.current[ch.id] = ws;
+    }
+  }, [user?.id, channels, dms, addToast]);
 
   const handleSelectChannel = useCallback((ch) => {
     if (currentChannel?.id) {

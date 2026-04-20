@@ -698,19 +698,6 @@ export class ChatRoom {
           };
           this.broadcast({ type: 'new_message', message: messageObj }, data.channelId);
 
-          // Push to each channel member's personal notification room
-          try {
-            const { results: members } = await this.env.DB.prepare(
-              'SELECT user_id FROM channel_members WHERE channel_id = ?'
-            ).bind(data.channelId).all();
-            const notifBody = JSON.stringify({ type: 'notification', channelId: data.channelId, message: messageObj });
-            for (const member of members) {
-              if (member.user_id !== data.userId) {
-                const room = this.env.CHAT_ROOM.get(this.env.CHAT_ROOM.idFromName(`notify:${member.user_id}`));
-                room.fetch(new Request('https://internal/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: notifBody })).catch(() => {});
-              }
-            }
-          } catch {}
         }
 
         if (data.type === 'edit_message') {
