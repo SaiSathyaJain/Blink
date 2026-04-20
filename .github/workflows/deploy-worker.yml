@@ -24,3 +24,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 1966c03f4aadbbe46523c450e7c71c51
+
+      - name: Set encryption secret
+        run: echo "${{ secrets.ENCRYPTION_KEY }}" | npx wrangler secret put ENCRYPTION_KEY
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 1966c03f4aadbbe46523c450e7c71c51
