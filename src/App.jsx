@@ -117,13 +117,15 @@ const App = () => {
           if (data.type !== 'new_message') return;
           const msg = data.message;
           if (!msg || msg.user_id === user.id) return;
-          if (ch.id === currentChannelRef.current?.id) return; // ChatArea handles current channel
-          setUnreadCounts(prev => ({ ...prev, [ch.id]: (prev[ch.id] || 0) + 1 }));
+          const isCurrentCh = ch.id === currentChannelRef.current?.id;
+          // Skip entirely only if user is actively viewing this channel (tab visible)
+          if (isCurrentCh && !document.hidden) return;
+          if (!isCurrentCh) setUnreadCounts(prev => ({ ...prev, [ch.id]: (prev[ch.id] || 0) + 1 }));
           if (Notification.permission === 'granted') {
             const title = ch.type === 'DM' ? msg.full_name : `#${ch.name}`;
             new Notification(title, { body: (msg.content || '').slice(0, 100), icon: '/favicon.ico' });
           }
-          if (!document.hidden) addToast(ch, msg.full_name, (msg.content || '').slice(0, 60));
+          if (!document.hidden && !isCurrentCh) addToast(ch, msg.full_name, (msg.content || '').slice(0, 60));
         } catch {}
       };
       ws.onclose = () => { delete notifSocketsRef.current[ch.id]; };
