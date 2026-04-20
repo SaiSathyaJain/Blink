@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus, Clock,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
@@ -346,6 +346,10 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const [showPollCreator, setShowPollCreator] = useState(false);
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [scheduledMsgs, setScheduledMsgs] = useState([]);
+  const [showScheduled, setShowScheduled] = useState(false);
   const inputRef = useRef(null);
 
   const copyChannelInvite = async () => {
@@ -571,6 +575,44 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
     }));
   }, [sendWS, user, channel]);
 
+  const fetchScheduled = useCallback(async () => {
+    const token = localStorage.getItem('blink_token');
+    try {
+      const res = await fetch(`${API}/api/scheduled?channelId=${channel.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await res.json();
+      setScheduledMsgs(Array.isArray(d) ? d : []);
+    } catch {}
+  }, [channel.id]);
+
+  const handleScheduleSend = useCallback(async () => {
+    if (!inputText.trim() || !scheduleAt) return;
+    const token = localStorage.getItem('blink_token');
+    try {
+      const res = await fetch(`${API}/api/scheduled`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channelId: channel.id, content: inputText.trim(), sendAt: new Date(scheduleAt).toISOString(), replyToId: replyTo?.id || null }),
+      });
+      if (res.ok) {
+        setInputText('');
+        setReplyTo(null);
+        setShowScheduler(false);
+        setScheduleAt('');
+        fetchScheduled();
+      }
+    } catch {}
+  }, [inputText, scheduleAt, channel.id, replyTo, fetchScheduled]);
+
+  const handleCancelScheduled = useCallback(async (id) => {
+    const token = localStorage.getItem('blink_token');
+    try {
+      await fetch(`${API}/api/scheduled/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      setScheduledMsgs(prev => prev.filter(m => m.id !== id));
+    } catch {}
+  }, []);
+
+  useEffect(() => { fetchScheduled(); }, [fetchScheduled]);
+
   const handleSend = useCallback(() => {
     if (!inputText.trim()) return;
     sendWS({
@@ -653,6 +695,13 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                 {inviteCopied ? <Check size={18} /> : <Link2 size={18} />}
               </button>
             )}
+            {scheduledMsgs.length > 0 && (
+              <button onClick={() => setShowScheduled(p => !p)} className="text-muted" title="Scheduled messages"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: showScheduled ? 'var(--primary)' : 'var(--primary)' }}>
+                <Clock size={16} />
+                <span style={{ fontSize: '0.75rem', fontWeight: 600 }}>{scheduledMsgs.length}</span>
+              </button>
+            )}
             <button onClick={() => { setShowSearch(p => !p); setSearchQuery(''); setSearchResults([]); }} className="text-muted" style={{ color: showSearch ? 'var(--primary)' : undefined }}>
               <Search size={18} />
             </button>
@@ -687,6 +736,29 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                     <PinOff size={13} />
                   </button>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Scheduled messages panel */}
+        {showScheduled && scheduledMsgs.length > 0 && (
+          <div style={{ backgroundColor: 'var(--bg-main)', borderBottom: '1px solid var(--border)', padding: '0.75rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.8125rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Clock size={13} style={{ color: 'var(--primary)' }} /> {scheduledMsgs.length} Scheduled Message{scheduledMsgs.length > 1 ? 's' : ''}
+              </span>
+              <button onClick={() => setShowScheduled(false)} className="text-muted"><X size={14} /></button>
+            </div>
+            {scheduledMsgs.map(m => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem', padding: '0.4rem 0', borderTop: '1px solid var(--border)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)' }}>
+                    {new Date(m.send_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <p style={{ fontSize: '0.8125rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: 0 }}>{m.content}</p>
+                </div>
+                <button onClick={() => handleCancelScheduled(m.id)} className="text-muted" title="Cancel" style={{ flexShrink: 0 }}><Trash2 size={13} /></button>
               </div>
             ))}
           </div>
@@ -799,6 +871,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
               <button className="text-muted"><ImageIcon size={20} /></button>
               <button className="text-muted"><AtSign size={20} /></button>
               <button className="text-muted" onClick={() => setShowPollCreator(true)} title="Create poll"><BarChart2 size={20} /></button>
+              <button className="text-muted" onClick={() => setShowScheduler(true)} title="Schedule message" style={{ color: scheduledMsgs.length > 0 ? 'var(--primary)' : undefined }}><Clock size={20} /></button>
               <div style={{ position: 'relative' }} ref={emojiPickerRef}>
                 <button className="text-muted" onClick={() => setShowEmojiPicker(p => !p)}><Smile size={20} /></button>
                 {showEmojiPicker && (
@@ -840,6 +913,36 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
           </div>
         </div>
       </div>
+
+      {showScheduler && createPortal(
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="fade-in" style={{ width: '100%', maxWidth: '400px', backgroundColor: 'var(--bg-chat)', borderRadius: '20px', padding: '1.75rem', boxShadow: 'var(--shadow-md)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Clock size={18} style={{ color: 'var(--primary)' }} /> Schedule Message</h3>
+              <button onClick={() => setShowScheduler(false)} className="text-muted"><X size={18} /></button>
+            </div>
+            <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-main)', borderRadius: '10px', fontSize: '0.9rem', color: 'var(--text-main)', marginBottom: '1.25rem', border: '1px solid var(--border)', minHeight: 48 }}>
+              {inputText.trim() || <span style={{ color: 'var(--text-muted)' }}>No message typed yet…</span>}
+            </div>
+            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>SEND AT</label>
+            <input
+              type="datetime-local"
+              value={scheduleAt}
+              min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+              onChange={e => setScheduleAt(e.target.value)}
+              style={{ width: '100%', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.625rem 0.875rem', fontSize: '0.9375rem', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)', marginBottom: '1.5rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowScheduler(false)} style={{ padding: '0.625rem 1.25rem', borderRadius: '10px', border: '1px solid var(--border)', fontSize: '0.9375rem', color: 'var(--text-muted)', backgroundColor: 'transparent' }}>Cancel</button>
+              <button onClick={handleScheduleSend} disabled={!inputText.trim() || !scheduleAt}
+                style={{ padding: '0.625rem 1.25rem', borderRadius: '10px', backgroundColor: 'var(--primary)', color: 'white', fontSize: '0.9375rem', fontWeight: 600, opacity: (!inputText.trim() || !scheduleAt) ? 0.5 : 1 }}>
+                Schedule
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {showProfile && <ProfileSidebar user={profileUser} onClose={() => setShowProfile(false)} />}
       {showFiles && !showProfile && <FileSidebar messages={messages} onClose={() => setShowFiles(false)} />}

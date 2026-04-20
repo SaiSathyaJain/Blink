@@ -66,6 +66,16 @@ async function runMigrations(env) {
       user_id TEXT NOT NULL,
       PRIMARY KEY (poll_id, user_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS scheduled_messages (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      reply_to_id TEXT,
+      send_at TEXT NOT NULL,
+      sent INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
   ];
   for (const t of tables) { try { await env.DB.prepare(t).run(); } catch {} }
 
@@ -132,6 +142,39 @@ function requireAdmin(request) {
 // ── Main Handler ──────────────────────────────────────────────────────────
 
 export default {
+  async scheduled(_event, env, _ctx) {
+    await runMigrations(env);
+    const now = new Date().toISOString();
+    const { results } = await env.DB.prepare(
+      'SELECT * FROM scheduled_messages WHERE send_at <= ? AND sent = 0'
+    ).bind(now).all();
+    for (const msg of results) {
+      try {
+        const sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(msg.user_id).first();
+        const messageId = crypto.randomUUID();
+        const timestamp = new Date().toISOString();
+        await env.DB.prepare('INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id) VALUES (?, ?, ?, ?, ?, ?)')
+          .bind(messageId, msg.channel_id, msg.user_id, msg.content, 'TEXT', msg.reply_to_id || null).run();
+        await env.DB.prepare('UPDATE scheduled_messages SET sent = 1 WHERE id = ?').bind(msg.id).run();
+        const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(msg.channel_id));
+        await room.fetch(new Request('https://internal/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'new_message',
+            message: {
+              id: messageId, channel_id: msg.channel_id, user_id: msg.user_id,
+              content: msg.content, full_name: sender?.full_name || 'Unknown',
+              avatar_url: sender?.avatar_url || null, timestamp,
+              reply_to_id: msg.reply_to_id || null, reply_content: null, reply_user_name: null,
+              is_deleted: 0, edited_at: null, reactions: [],
+            },
+          }),
+        }));
+      } catch {}
+    }
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
@@ -176,6 +219,10 @@ export default {
     if (pathname.startsWith('/api/invite/') && request.method === 'GET') return handleJoinInvite(request, env);
     if (pathname.startsWith('/api/read-receipt/') && request.method === 'PUT') return handleUpdateReadReceipt(request, env);
     if (pathname.startsWith('/api/read-receipt/') && request.method === 'GET') return handleGetReadReceipt(request, env);
+
+    if (pathname === '/api/scheduled' && request.method === 'POST') return handleCreateScheduled(request, env);
+    if (pathname === '/api/scheduled' && request.method === 'GET') return handleGetScheduled(request, env);
+    if (pathname.startsWith('/api/scheduled/') && request.method === 'DELETE') return handleDeleteScheduled(request, env);
 
     return new Response('Blink API', { status: 200 });
   }
@@ -628,6 +675,40 @@ async function handleGetReadReceipt(request, env) {
     'SELECT user_id, last_read_at FROM dm_read_receipts WHERE channel_id = ?'
   ).bind(channelId).all();
   return corsResponse(JSON.stringify(results));
+}
+
+// ── Scheduled Messages ────────────────────────────────────────────────────
+
+async function handleCreateScheduled(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  const { channelId, content, sendAt, replyToId } = body;
+  if (!channelId || !content?.trim() || !sendAt) return corsResponse(JSON.stringify({ error: 'channelId, content and sendAt required' }), 400);
+  if (new Date(sendAt) <= new Date()) return corsResponse(JSON.stringify({ error: 'sendAt must be in the future' }), 400);
+  const id = crypto.randomUUID();
+  await env.DB.prepare('INSERT INTO scheduled_messages (id, channel_id, user_id, content, reply_to_id, send_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, channelId, user.id, content.trim(), replyToId || null, sendAt).run();
+  return corsResponse(JSON.stringify({ id, channelId, content: content.trim(), sendAt }), 201);
+}
+
+async function handleGetScheduled(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const channelId = new URL(request.url).searchParams.get('channelId');
+  if (!channelId) return corsResponse(JSON.stringify({ error: 'channelId required' }), 400);
+  const { results } = await env.DB.prepare(
+    'SELECT id, channel_id, content, send_at, reply_to_id FROM scheduled_messages WHERE channel_id = ? AND user_id = ? AND sent = 0 ORDER BY send_at ASC'
+  ).bind(channelId, user.id).all();
+  return corsResponse(JSON.stringify(results));
+}
+
+async function handleDeleteScheduled(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const id = new URL(request.url).pathname.split('/').pop();
+  await env.DB.prepare('DELETE FROM scheduled_messages WHERE id = ? AND user_id = ? AND sent = 0').bind(id, user.id).run();
+  return corsResponse(JSON.stringify({ success: true }));
 }
 
 // ── Durable Object: ChatRoom ──────────────────────────────────────────────
