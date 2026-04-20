@@ -115,8 +115,42 @@ async function runMigrations(env) {
     'ALTER TABLE messages ADD COLUMN edited_at TIMESTAMP',
     'ALTER TABLE messages ADD COLUMN is_deleted INTEGER DEFAULT 0',
     "ALTER TABLE invite_links ADD COLUMN channel_id TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE messages ADD COLUMN reply_content TEXT',
+    'ALTER TABLE messages ADD COLUMN reply_user_name TEXT',
   ];
   for (const a of alters) { try { await env.DB.prepare(a).run(); } catch {} }
+}
+
+// ── AES-256-GCM Encryption ────────────────────────────────────────────────
+
+function hexToBytes(hex) {
+  const arr = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < arr.length; i++) arr[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return arr;
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function encrypt(text, keyHex) {
+  if (!text || !keyHex) return text;
+  try {
+    const key = await crypto.subtle.importKey('raw', hexToBytes(keyHex), 'AES-GCM', false, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(text));
+    return bytesToHex(iv) + ':' + bytesToHex(new Uint8Array(ciphertext));
+  } catch { return text; }
+}
+
+async function decrypt(encrypted, keyHex) {
+  if (!encrypted || !keyHex || !String(encrypted).includes(':')) return encrypted;
+  try {
+    const [ivHex, ctHex] = String(encrypted).split(':');
+    const key = await crypto.subtle.importKey('raw', hexToBytes(keyHex), 'AES-GCM', false, ['decrypt']);
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: hexToBytes(ivHex) }, key, hexToBytes(ctHex));
+    return new TextDecoder().decode(decrypted);
+  } catch { return encrypted; }
 }
 
 // ── Password / JWT ────────────────────────────────────────────────────────
@@ -190,6 +224,7 @@ export default {
         }
         const messageId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
+        const plainContent = await decrypt(msg.content, env.ENCRYPTION_KEY);
         await env.DB.prepare('UPDATE scheduled_messages SET sent = 1 WHERE id = ?').bind(msg.id).run();
         const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(msg.channel_id));
         await room.fetch(new Request('https://internal/', {
@@ -199,7 +234,7 @@ export default {
             type: 'new_message',
             message: {
               id: messageId, channel_id: msg.channel_id, user_id: msg.user_id,
-              content: msg.content, full_name: sender?.full_name || 'Unknown',
+              content: plainContent, full_name: sender?.full_name || 'Unknown',
               avatar_url: sender?.avatar_url || null, timestamp,
               reply_to_id: msg.reply_to_id || null, reply_content: null, reply_user_name: null,
               is_deleted: 0, edited_at: null, reactions: [],
@@ -483,7 +518,39 @@ async function handleWebSocket(request, env) {
 // ── Messages ──────────────────────────────────────────────────────────────
 
 async function handleMessages(request, env) {
-  return corsResponse(JSON.stringify([]));
+  const authUser = getAuth(request);
+  if (!authUser) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const channelId = new URL(request.url).pathname.split('/').pop();
+  const { results: messages } = await env.DB.prepare(`
+    SELECT m.id, m.channel_id, m.user_id, m.content, m.type, m.timestamp,
+           m.reply_to_id, m.reply_content, m.reply_user_name, m.edited_at, m.is_deleted,
+           u.full_name, u.avatar_url
+    FROM messages m
+    JOIN users u ON m.user_id = u.id
+    WHERE m.channel_id = ? ORDER BY m.timestamp ASC LIMIT 100
+  `).bind(channelId).all();
+
+  if (!messages.length) return corsResponse(JSON.stringify([]));
+
+  const key = env.ENCRYPTION_KEY;
+  const decrypted = await Promise.all(messages.map(async m => ({
+    ...m,
+    content: m.is_deleted ? null : await decrypt(m.content, key),
+    reply_content: m.reply_content ? await decrypt(m.reply_content, key) : null,
+    reactions: [],
+  })));
+
+  const ids = messages.map(m => `'${m.id.replace(/'/g, "''")}'`).join(',');
+  const { results: reactions } = await env.DB.prepare(
+    `SELECT message_id, emoji, user_id FROM message_reactions WHERE message_id IN (${ids})`
+  ).all();
+  const reactMap = {};
+  for (const r of reactions) {
+    if (!reactMap[r.message_id]) reactMap[r.message_id] = [];
+    reactMap[r.message_id].push({ emoji: r.emoji, user_id: r.user_id });
+  }
+
+  return corsResponse(JSON.stringify(decrypted.map(m => ({ ...m, reactions: reactMap[m.id] || [] }))));
 }
 
 async function handleEditMessage(request, env) {
@@ -493,8 +560,9 @@ async function handleEditMessage(request, env) {
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
   if (!body.content?.trim()) return corsResponse(JSON.stringify({ error: 'content required' }), 400);
   const editedAt = new Date().toISOString();
+  const encContent = await encrypt(body.content.trim(), env.ENCRYPTION_KEY);
   await env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ? AND user_id = ?')
-    .bind(body.content.trim(), editedAt, messageId, user.id).run();
+    .bind(encContent, editedAt, messageId, user.id).run();
   return corsResponse(JSON.stringify({ success: true, editedAt }));
 }
 
@@ -611,26 +679,21 @@ async function handleSearch(request, env) {
   const q = (searchParams.get('q') || '').trim();
   const channelId = searchParams.get('channelId');
   if (!q) return corsResponse(JSON.stringify([]));
-  if (channelId) {
-    const { results } = await env.DB.prepare(`
-      SELECT m.id, m.channel_id, m.content, m.timestamp, u.full_name, u.avatar_url
-      FROM messages m JOIN users u ON m.user_id = u.id
-      WHERE m.channel_id = ? AND m.content LIKE ? AND m.is_deleted = 0
-      ORDER BY m.timestamp DESC LIMIT 50
-    `).bind(channelId, `%${q}%`).all();
-    return corsResponse(JSON.stringify(results));
-  }
-  const { results } = await env.DB.prepare(`
-    SELECT m.id, m.channel_id, m.content, m.timestamp, u.full_name, u.avatar_url,
-           c.name as channel_name, c.type as channel_type
-    FROM messages m
-    JOIN users u ON m.user_id = u.id
-    JOIN channels c ON m.channel_id = c.id
-    JOIN channel_members cm ON cm.channel_id = m.channel_id AND cm.user_id = ?
-    WHERE m.content LIKE ? AND m.is_deleted = 0
-    ORDER BY m.timestamp DESC LIMIT 50
-  `).bind(auth.id, `%${q}%`).all();
-  return corsResponse(JSON.stringify(results));
+  // Message content is encrypted — search by sender name only
+  const base = channelId
+    ? { sql: `SELECT m.id, m.channel_id, m.timestamp, u.full_name, u.avatar_url
+               FROM messages m JOIN users u ON m.user_id = u.id
+               WHERE m.channel_id = ? AND u.full_name LIKE ? AND m.is_deleted = 0
+               ORDER BY m.timestamp DESC LIMIT 50`, binds: [channelId, `%${q}%`] }
+    : { sql: `SELECT m.id, m.channel_id, m.timestamp, u.full_name, u.avatar_url,
+                     c.name as channel_name, c.type as channel_type
+               FROM messages m JOIN users u ON m.user_id = u.id
+               JOIN channels c ON m.channel_id = c.id
+               JOIN channel_members cm ON cm.channel_id = m.channel_id AND cm.user_id = ?
+               WHERE u.full_name LIKE ? AND m.is_deleted = 0
+               ORDER BY m.timestamp DESC LIMIT 50`, binds: [auth.id, `%${q}%`] };
+  const { results } = await env.DB.prepare(base.sql).bind(...base.binds).all();
+  return corsResponse(JSON.stringify(results.map(r => ({ ...r, content: '[Encrypted]' }))));
 }
 
 // ── Invite Links ──────────────────────────────────────────────────────────
@@ -695,8 +758,9 @@ async function handleCreateScheduled(request, env) {
   if (!channelId || !content?.trim() || !sendAt) return corsResponse(JSON.stringify({ error: 'channelId, content and sendAt required' }), 400);
   if (new Date(sendAt) <= new Date()) return corsResponse(JSON.stringify({ error: 'sendAt must be in the future' }), 400);
   const id = crypto.randomUUID();
+  const encContent = await encrypt(content.trim(), env.ENCRYPTION_KEY);
   await env.DB.prepare('INSERT INTO scheduled_messages (id, channel_id, user_id, content, reply_to_id, send_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(id, channelId, user.id, content.trim(), replyToId || null, sendAt).run();
+    .bind(id, channelId, user.id, encContent, replyToId || null, sendAt).run();
   return corsResponse(JSON.stringify({ id, channelId, content: content.trim(), sendAt }), 201);
 }
 
@@ -772,6 +836,11 @@ export class ChatRoom {
           }
           const messageId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
+          const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
+          const encReplyContent = data.replyContent ? await encrypt(data.replyContent, this.env.ENCRYPTION_KEY) : null;
+          await this.env.DB.prepare(
+            'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(messageId, data.channelId, data.userId, encContent, 'TEXT', data.replyToId || null, encReplyContent, data.replyUserName || null).run();
           const messageObj = {
             id: messageId, channel_id: data.channelId, user_id: data.userId,
             content: data.content, full_name: data.userName, avatar_url: data.avatarUrl || null,
@@ -784,11 +853,15 @@ export class ChatRoom {
 
         if (data.type === 'edit_message') {
           const editedAt = new Date().toISOString();
+          const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
+          await this.env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ? AND user_id = ?')
+            .bind(encContent, editedAt, data.messageId, data.userId).run();
           this.broadcast({ type: 'message_edited', messageId: data.messageId, content: data.content, editedAt, channelId: data.channelId }, data.channelId);
         }
 
         if (data.type === 'delete_message') {
           if (data.isOwn || data.userRole === 'OWNER' || data.userRole === 'ADMIN') {
+            await this.env.DB.prepare('UPDATE messages SET is_deleted = 1 WHERE id = ?').bind(data.messageId).run();
             this.broadcast({ type: 'message_deleted', messageId: data.messageId, channelId: data.channelId }, data.channelId);
           }
         }
