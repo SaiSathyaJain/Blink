@@ -614,8 +614,9 @@ async function handleUpdateReadReceipt(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
   const channelId = new URL(request.url).pathname.split('/').pop();
-  await env.DB.prepare('INSERT OR REPLACE INTO dm_read_receipts (channel_id, user_id, last_read_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-    .bind(channelId, user.id).run();
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT OR REPLACE INTO dm_read_receipts (channel_id, user_id, last_read_at) VALUES (?, ?, ?)')
+    .bind(channelId, user.id, now).run();
   return corsResponse(JSON.stringify({ success: true }));
 }
 

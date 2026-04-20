@@ -381,11 +381,12 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   useEffect(() => {
     if (channel.type !== 'DM') return;
     const token = localStorage.getItem('blink_token');
-    fetch(`${API}/api/read-receipt/${channel.id}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    const updateReceipt = () => fetch(`${API}/api/read-receipt/${channel.id}`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
     const fetchReceipts = () => fetch(`${API}/api/read-receipt/${channel.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(d => { if (Array.isArray(d)) setReadReceipts(d); }).catch(() => {});
+    updateReceipt();
     fetchReceipts();
-    const interval = setInterval(fetchReceipts, 5000);
+    const interval = setInterval(() => { updateReceipt(); fetchReceipts(); }, 5000);
     return () => clearInterval(interval);
   }, [channel.id]);
 
