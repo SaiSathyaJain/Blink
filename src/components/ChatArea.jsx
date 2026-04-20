@@ -364,28 +364,6 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
     } catch {}
   };
 
-  const handleCreatePoll = useCallback(() => {
-    const opts = pollOptions.map(o => o.trim()).filter(Boolean);
-    if (!pollQuestion.trim() || opts.length < 2) return;
-    sendWS({ type: 'create_poll', channelId: channel.id, userId: user.id, userName: user.full_name, avatarUrl: user.avatar_url, question: pollQuestion.trim(), options: opts });
-    setShowPollCreator(false);
-    setPollQuestion('');
-    setPollOptions(['', '']);
-  }, [pollQuestion, pollOptions, channel, user, sendWS]);
-
-  const handleVotePoll = useCallback((pollId, optionId) => {
-    sendWS({ type: 'vote_poll', pollId, optionId, userId: user.id, channelId: channel.id });
-    setMessages(prev => prev.map(m => {
-      if (!m.poll || m.poll.id !== pollId) return m;
-      const oldVote = m.poll.userVote;
-      const options = m.poll.options.map(o => ({
-        ...o,
-        votes: o.id === optionId ? o.votes + 1 : (o.id === oldVote ? Math.max(0, o.votes - 1) : o.votes),
-      }));
-      return { ...m, poll: { ...m.poll, options, totalVotes: m.poll.totalVotes + (oldVote ? 0 : 1), userVote: optionId } };
-    }));
-  }, [sendWS, user, channel]);
-
   const requestNotifPermission = async () => {
     if (!('Notification' in window) || notifPermission === 'denied') return;
     const result = await Notification.requestPermission();
@@ -575,6 +553,28 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const sendWS = useCallback((data) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify(data));
   }, []);
+
+  const handleCreatePoll = useCallback(() => {
+    const opts = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || opts.length < 2) return;
+    sendWS({ type: 'create_poll', channelId: channel.id, userId: user.id, userName: user.full_name, avatarUrl: user.avatar_url, question: pollQuestion.trim(), options: opts });
+    setShowPollCreator(false);
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  }, [pollQuestion, pollOptions, channel, user, sendWS]);
+
+  const handleVotePoll = useCallback((pollId, optionId) => {
+    sendWS({ type: 'vote_poll', pollId, optionId, userId: user.id, channelId: channel.id });
+    setMessages(prev => prev.map(m => {
+      if (!m.poll || m.poll.id !== pollId) return m;
+      const oldVote = m.poll.userVote;
+      const options = m.poll.options.map(o => ({
+        ...o,
+        votes: o.id === optionId ? o.votes + 1 : (o.id === oldVote ? Math.max(0, o.votes - 1) : o.votes),
+      }));
+      return { ...m, poll: { ...m.poll, options, totalVotes: m.poll.totalVotes + (oldVote ? 0 : 1), userVote: optionId } };
+    }));
+  }, [sendWS, user, channel]);
 
   const handleSend = useCallback(() => {
     if (!inputText.trim()) return;
