@@ -322,6 +322,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
+  const [rateLimitError, setRateLimitError] = useState(null);
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [showPinned, setShowPinned] = useState(false);
   const wsRef = useRef(null);
@@ -526,6 +527,11 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
             const userVote = data.votes?.find(v => v.user_id === user.id)?.option_id || m.poll.userVote;
             return { ...m, poll: { ...m.poll, options: data.options, totalVotes: data.totalVotes, userVote } };
           }));
+        }
+
+        if (data.type === 'error') {
+          setRateLimitError(data.message);
+          setTimeout(() => setRateLimitError(null), 4000);
         }
       } catch {}
     };
@@ -854,6 +860,11 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                   <span style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-main)' }}>{u.full_name}</span>
                 </button>
               ))}
+            </div>
+          )}
+          {rateLimitError && (
+            <div style={{ padding: '0.375rem 0.75rem', marginBottom: '0.4rem', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', fontSize: '0.8125rem', color: '#dc2626' }}>
+              {rateLimitError}
             </div>
           )}
           {replyTo && (

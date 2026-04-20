@@ -2,6 +2,37 @@
  * Blink Backend - Cloudflare Worker + Durable Objects
  */
 
+import { Redis } from '@upstash/redis/cloudflare';
+import { Ratelimit } from '@upstash/ratelimit';
+
+// ── Redis / Cache / Rate-limit helpers ───────────────────────────────────────
+
+function getRedis(env) {
+  if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) return null;
+  return new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN });
+}
+
+async function cacheGet(redis, key) {
+  try { return await redis.get(key); } catch { return null; }
+}
+
+async function cacheSet(redis, key, value, ttlSeconds) {
+  try { await redis.set(key, JSON.stringify(value), { ex: ttlSeconds }); } catch {}
+}
+
+async function cacheDel(redis, ...keys) {
+  try { if (keys.length) await redis.del(...keys); } catch {}
+}
+
+async function rateLimit(env, identifier, requests, window) {
+  const redis = getRedis(env);
+  if (!redis) return { success: true };
+  try {
+    const rl = new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(requests, window) });
+    return await rl.limit(identifier);
+  } catch { return { success: true }; }
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -150,7 +181,13 @@ export default {
     ).bind(now).all();
     for (const msg of results) {
       try {
-        const sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(msg.user_id).first();
+        const redis = getRedis(env);
+        const senderCacheKey = `cache:user:${msg.user_id}`;
+        let sender = redis ? await cacheGet(redis, senderCacheKey) : null;
+        if (!sender) {
+          sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(msg.user_id).first();
+          if (redis && sender) await cacheSet(redis, senderCacheKey, sender, 3600);
+        }
         const messageId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
         await env.DB.prepare('UPDATE scheduled_messages SET sent = 1 WHERE id = ?').bind(msg.id).run();
@@ -229,6 +266,10 @@ export default {
 // ── Auth ──────────────────────────────────────────────────────────────────
 
 async function handleRegister(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const { success: regOk } = await rateLimit(env, `register:${ip}`, 5, '10 m');
+  if (!regOk) return corsResponse(JSON.stringify({ error: 'Too many registrations. Try again later.' }), 429);
+
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
   const { email, password, full_name } = body;
   if (!email || !password || !full_name) return corsResponse(JSON.stringify({ error: 'email, password and full_name are required' }), 400);
@@ -251,6 +292,10 @@ async function handleRegister(request, env) {
 }
 
 async function handleLogin(request, env) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const { success: loginOk } = await rateLimit(env, `login:${ip}`, 10, '60 s');
+  if (!loginOk) return corsResponse(JSON.stringify({ error: 'Too many login attempts. Try again in a minute.' }), 429);
+
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
   const { email, password } = body;
   if (!email || !password) return corsResponse(JSON.stringify({ error: 'email and password are required' }), 400);
@@ -299,9 +344,14 @@ async function handleGoogleAuth(request, env) {
 async function handleGetUsers(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const redis = getRedis(env);
+  const cacheKey = `cache:users:${user.id}`;
+  const cached = redis ? await cacheGet(redis, cacheKey) : null;
+  if (cached) return corsResponse(JSON.stringify(cached));
   const { results } = await env.DB.prepare(
     'SELECT id, full_name, avatar_url, status FROM users WHERE id != ? ORDER BY full_name ASC'
   ).bind(user.id).all();
+  if (redis) await cacheSet(redis, cacheKey, results, 30);
   return corsResponse(JSON.stringify(results));
 }
 
@@ -318,9 +368,13 @@ async function handleUpdateProfile(request, env) {
 // ── Channels ──────────────────────────────────────────────────────────────
 
 async function handleChannels(_request, env) {
+  const redis = getRedis(env);
+  const cached = redis ? await cacheGet(redis, 'cache:channels') : null;
+  if (cached) return corsResponse(JSON.stringify(cached));
   const { results } = await env.DB.prepare(
     "SELECT id, name, description, type FROM channels WHERE type != 'DM' ORDER BY name ASC"
   ).all();
+  if (redis) await cacheSet(redis, 'cache:channels', results, 60);
   return corsResponse(JSON.stringify(results));
 }
 
@@ -338,6 +392,8 @@ async function handleCreateChannel(request, env) {
 
   await env.DB.prepare("INSERT INTO channels (id, name, description, type) VALUES (?, ?, ?, 'PUBLIC')").bind(id, name, description || '').run();
   await env.DB.prepare("INSERT OR IGNORE INTO channel_members (channel_id, user_id, role) SELECT ?, id, 'MEMBER' FROM users").bind(id).run();
+  const redis = getRedis(env);
+  if (redis) await cacheDel(redis, 'cache:channels');
   return corsResponse(JSON.stringify({ id, name, description: description || '' }), 201);
 }
 
@@ -346,6 +402,10 @@ async function handleCreateChannel(request, env) {
 async function handleGetDMs(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const redis = getRedis(env);
+  const cacheKey = `cache:dms:${user.id}`;
+  const cached = redis ? await cacheGet(redis, cacheKey) : null;
+  if (cached) return corsResponse(JSON.stringify(cached));
   const { results } = await env.DB.prepare(`
     SELECT c.id, u.id as other_user_id, u.full_name as other_user_name,
            u.avatar_url as other_user_avatar, u.status as other_user_status
@@ -356,7 +416,9 @@ async function handleGetDMs(request, env) {
     WHERE c.type = 'DM'
     ORDER BY c.created_at DESC
   `).bind(user.id, user.id).all();
-  return corsResponse(JSON.stringify(results.map(r => ({ ...r, type: 'DM' }))));
+  const dms = results.map(r => ({ ...r, type: 'DM' }));
+  if (redis) await cacheSet(redis, cacheKey, dms, 30);
+  return corsResponse(JSON.stringify(dms));
 }
 
 async function handleCreateDM(request, env) {
@@ -384,6 +446,8 @@ async function handleCreateDM(request, env) {
   await env.DB.prepare("INSERT INTO channels (id, name, type) VALUES (?, 'DM', 'DM')").bind(dmId).run();
   await env.DB.prepare('INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)').bind(dmId, user.id, 'MEMBER').run();
   await env.DB.prepare('INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)').bind(dmId, otherUserId, 'MEMBER').run();
+  const redis = getRedis(env);
+  if (redis) await cacheDel(redis, `cache:dms:${user.id}`, `cache:dms:${otherUserId}`);
   return corsResponse(JSON.stringify({ id: dmId, type: 'DM', other_user_id: otherUser.id, other_user_name: otherUser.full_name, other_user_avatar: otherUser.avatar_url, other_user_status: otherUser.status }), 201);
 }
 
@@ -701,6 +765,11 @@ export class ChatRoom {
         }
 
         if (data.type === 'message') {
+          const { success: msgOk } = await rateLimit(this.env, `msg:${data.userId}`, 15, '10 s');
+          if (!msgOk) {
+            webSocket.send(JSON.stringify({ type: 'error', message: 'Sending too fast — slow down a little.' }));
+            return;
+          }
           const messageId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
           const messageObj = {

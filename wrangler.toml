@@ -20,3 +20,7 @@ new_sqlite_classes = ["ChatRoom"]
 
 [triggers]
 crons = ["* * * * *"]
+
+[vars]
+UPSTASH_REDIS_REST_URL = "YOUR_UPSTASH_REDIS_REST_URL"
+UPSTASH_REDIS_REST_TOKEN = "YOUR_UPSTASH_REDIS_REST_TOKEN"
