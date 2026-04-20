@@ -6,6 +6,7 @@ import Login from './components/Login';
 import ToastContainer from './components/Toast';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
+const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
 
 const App = () => {
   const [user, setUser] = useState(null);
@@ -18,6 +19,7 @@ const App = () => {
   const [toasts, setToasts] = useState([]);
   const lastReadRef = useRef({});
   const allChannelsRef = useRef([]);
+  const currentChannelRef = useRef(null);
 
   const dismissToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -87,6 +89,34 @@ const App = () => {
     const interval = setInterval(fetchUnread, 30000);
     return () => clearInterval(interval);
   }, [user, currentChannel?.id]);
+
+  // Keep currentChannelRef in sync to avoid stale closure in notification WS
+  useEffect(() => { currentChannelRef.current = currentChannel; }, [currentChannel]);
+
+  // Global notification WebSocket — receives messages from ALL channels for this user
+  useEffect(() => {
+    if (!user) return;
+    const socket = new WebSocket(`${WS_URL}/api/ws?room=notify:${user.id}`);
+    socket.onopen = () => socket.send(JSON.stringify({ type: 'join', channelId: `notify:${user.id}`, userId: user.id }));
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type !== 'notification') return;
+        const msg = data.message;
+        if (!msg || msg.user_id === user.id) return;
+        const isCurrentChannel = data.channelId === currentChannelRef.current?.id;
+        if (Notification.permission === 'granted' && (document.hidden || !isCurrentChannel)) {
+          const ch = allChannelsRef.current.find(c => c.id === data.channelId);
+          const chName = ch?.type === 'DM' ? ch.other_user_name : `#${ch?.name || data.channelId}`;
+          new Notification(`${msg.full_name} → ${chName}`, {
+            body: (msg.content || '').slice(0, 100),
+            icon: '/favicon.ico',
+          });
+        }
+      } catch {}
+    };
+    return () => socket.close();
+  }, [user?.id]);
 
   const handleSelectChannel = useCallback((ch) => {
     if (currentChannel?.id) {

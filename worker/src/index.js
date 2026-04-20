@@ -639,7 +639,18 @@ export class ChatRoom {
     this.sessions = [];
   }
 
-  async fetch(_request) {
+  async fetch(request) {
+    // Internal POST: broadcast a payload to all connected WS clients (used for cross-channel notifications)
+    if (request.method === 'POST') {
+      try {
+        const payload = await request.json();
+        const msg = JSON.stringify(payload);
+        for (const session of this.sessions) {
+          try { session.webSocket.send(msg); } catch {}
+        }
+      } catch {}
+      return new Response('OK');
+    }
     const [client, server] = Object.values(new WebSocketPair());
     await this.handleSession(server);
     return new Response(null, { status: 101, webSocket: client });
@@ -678,16 +689,28 @@ export class ChatRoom {
             if (rm) { replyContent = rm.content; replyUserName = rm.full_name; }
           }
 
-          this.broadcast({
-            type: 'new_message',
-            message: {
-              id: messageId, channel_id: data.channelId, user_id: data.userId,
-              content: data.content, full_name: data.userName, avatar_url: data.avatarUrl || null,
-              timestamp, reply_to_id: data.replyToId || null,
-              reply_content: replyContent, reply_user_name: replyUserName,
-              is_deleted: 0, edited_at: null, reactions: [],
+          const messageObj = {
+            id: messageId, channel_id: data.channelId, user_id: data.userId,
+            content: data.content, full_name: data.userName, avatar_url: data.avatarUrl || null,
+            timestamp, reply_to_id: data.replyToId || null,
+            reply_content: replyContent, reply_user_name: replyUserName,
+            is_deleted: 0, edited_at: null, reactions: [],
+          };
+          this.broadcast({ type: 'new_message', message: messageObj }, data.channelId);
+
+          // Push to each channel member's personal notification room
+          try {
+            const { results: members } = await this.env.DB.prepare(
+              'SELECT user_id FROM channel_members WHERE channel_id = ?'
+            ).bind(data.channelId).all();
+            const notifBody = JSON.stringify({ type: 'notification', channelId: data.channelId, message: messageObj });
+            for (const member of members) {
+              if (member.user_id !== data.userId) {
+                const room = this.env.CHAT_ROOM.get(this.env.CHAT_ROOM.idFromName(`notify:${member.user_id}`));
+                room.fetch(new Request('https://internal/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: notifBody })).catch(() => {});
+              }
             }
-          }, data.channelId);
+          } catch {}
         }
 
         if (data.type === 'edit_message') {
