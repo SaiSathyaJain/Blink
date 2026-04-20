@@ -1,0 +1,17 @@
+{
+  "vite.config.js": 1776657233.473302,
+  "src\\App.jsx": 1776513137.4845345,
+  "src\\main.jsx": 1776489164.7213259,
+  "src\\components\\AdminPanel.jsx": 1776503576.5628903,
+  "src\\components\\ChatArea.jsx": 1776512463.539406,
+  "src\\components\\CreateChannelModal.jsx": 1776509142.2515872,
+  "src\\components\\FileModal.jsx": 1776503524.633696,
+  "src\\components\\FileSidebar.jsx": 1776503546.0316756,
+  "src\\components\\Login.jsx": 1776657233.4576924,
+  "src\\components\\ProfileSidebar.jsx": 1776503534.4197528,
+  "src\\components\\Sidebar.jsx": 1776657233.4576924,
+  "src\\components\\Toast.jsx": 1776509617.6262846,
+  "worker\\src\\index.js": 1776657233.473302,
+  "index.html": 1776489164.7213259,
+  "README.md": 1776489164.7213259
+}

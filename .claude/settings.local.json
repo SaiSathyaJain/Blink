@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"\nimport json\nfrom pathlib import Path\n\nanalysis = json.loads\\(Path\\('.graphify_analysis.json'\\).read_text\\(\\)\\)\ncommunities = analysis['communities']\nfor cid, nodes in communities.items\\(\\):\n    print\\(f'Community {cid}: {nodes[:6]}'\\)\n\")"
+    ]
+  }
+}
