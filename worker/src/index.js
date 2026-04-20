@@ -153,8 +153,6 @@ export default {
         const sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(msg.user_id).first();
         const messageId = crypto.randomUUID();
         const timestamp = new Date().toISOString();
-        await env.DB.prepare('INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id) VALUES (?, ?, ?, ?, ?, ?)')
-          .bind(messageId, msg.channel_id, msg.user_id, msg.content, 'TEXT', msg.reply_to_id || null).run();
         await env.DB.prepare('UPDATE scheduled_messages SET sent = 1 WHERE id = ?').bind(msg.id).run();
         const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(msg.channel_id));
         await room.fetch(new Request('https://internal/', {
@@ -421,61 +419,7 @@ async function handleWebSocket(request, env) {
 // ── Messages ──────────────────────────────────────────────────────────────
 
 async function handleMessages(request, env) {
-  const authUser = getAuth(request);
-  const channelId = new URL(request.url).pathname.split('/').pop();
-  const { results: messages } = await env.DB.prepare(`
-    SELECT m.id, m.channel_id, m.user_id, m.content, m.type, m.timestamp,
-           m.reply_to_id, m.edited_at, m.is_deleted,
-           u.full_name, u.avatar_url,
-           rm.content as reply_content, ru.full_name as reply_user_name
-    FROM messages m
-    JOIN users u ON m.user_id = u.id
-    LEFT JOIN messages rm ON m.reply_to_id = rm.id
-    LEFT JOIN users ru ON rm.user_id = ru.id
-    WHERE m.channel_id = ? ORDER BY m.timestamp ASC LIMIT 100
-  `).bind(channelId).all();
-
-  if (!messages.length) return corsResponse(JSON.stringify([]));
-
-  const ids = messages.map(m => `'${m.id.replace(/'/g, "''")}'`).join(',');
-  const { results: reactions } = await env.DB.prepare(
-    `SELECT message_id, emoji, user_id FROM message_reactions WHERE message_id IN (${ids})`
-  ).all();
-
-  const reactMap = {};
-  for (const r of reactions) {
-    if (!reactMap[r.message_id]) reactMap[r.message_id] = [];
-    reactMap[r.message_id].push({ emoji: r.emoji, user_id: r.user_id });
-  }
-
-  // Embed poll data for POLL-type messages
-  const pollIds = messages.filter(m => m.type === 'POLL' && m.content).map(m => m.content);
-  let pollMap = {};
-  if (pollIds.length > 0) {
-    const ph = pollIds.map(() => '?').join(',');
-    const [{ results: polls }, { results: allVotes }] = await Promise.all([
-      env.DB.prepare(`SELECT id, question, options FROM polls WHERE id IN (${ph})`).bind(...pollIds).all(),
-      env.DB.prepare(`SELECT poll_id, option_id, user_id FROM poll_votes WHERE poll_id IN (${ph})`).bind(...pollIds).all(),
-    ]);
-    for (const p of polls) {
-      const options = JSON.parse(p.options || '[]');
-      const votes = allVotes.filter(v => v.poll_id === p.id);
-      const voteCounts = {};
-      votes.forEach(v => { voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1; });
-      const userVote = authUser ? (votes.find(v => v.user_id === authUser.id)?.option_id || null) : null;
-      pollMap[p.id] = {
-        id: p.id, question: p.question,
-        options: options.map(o => ({ ...o, votes: voteCounts[o.id] || 0 })),
-        totalVotes: votes.length, userVote,
-      };
-    }
-  }
-
-  return corsResponse(JSON.stringify(messages.map(m => ({
-    ...m,
-    reactions: reactMap[m.id] || [],
-    poll: m.type === 'POLL' ? (pollMap[m.content] || null) : undefined,
-  }))));
+  return corsResponse(JSON.stringify([]));
 }
 
 async function handleEditMessage(request, env) {
@@ -718,6 +662,7 @@ export class ChatRoom {
     this.state = state;
     this.env = env;
     this.sessions = [];
+    this.reactions = {}; // in-memory: messageId -> [{emoji, user_id}]
   }
 
   async fetch(request) {
@@ -758,72 +703,41 @@ export class ChatRoom {
         if (data.type === 'message') {
           const messageId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
-          await this.env.DB.prepare(
-            'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id) VALUES (?, ?, ?, ?, ?, ?)'
-          ).bind(messageId, data.channelId, data.userId, data.content, 'TEXT', data.replyToId || null).run();
-
-          let replyContent = null, replyUserName = null;
-          if (data.replyToId) {
-            const rm = await this.env.DB.prepare(
-              'SELECT m.content, u.full_name FROM messages m JOIN users u ON m.user_id = u.id WHERE m.id = ?'
-            ).bind(data.replyToId).first();
-            if (rm) { replyContent = rm.content; replyUserName = rm.full_name; }
-          }
-
           const messageObj = {
             id: messageId, channel_id: data.channelId, user_id: data.userId,
             content: data.content, full_name: data.userName, avatar_url: data.avatarUrl || null,
             timestamp, reply_to_id: data.replyToId || null,
-            reply_content: replyContent, reply_user_name: replyUserName,
+            reply_content: data.replyContent || null, reply_user_name: data.replyUserName || null,
             is_deleted: 0, edited_at: null, reactions: [],
           };
           this.broadcast({ type: 'new_message', message: messageObj }, data.channelId);
-
         }
 
         if (data.type === 'edit_message') {
           const editedAt = new Date().toISOString();
-          await this.env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ? AND user_id = ?')
-            .bind(data.content, editedAt, data.messageId, data.userId).run();
           this.broadcast({ type: 'message_edited', messageId: data.messageId, content: data.content, editedAt, channelId: data.channelId }, data.channelId);
         }
 
         if (data.type === 'delete_message') {
-          const row = await this.env.DB.prepare('SELECT user_id FROM messages WHERE id = ?').bind(data.messageId).first();
-          if (row && (row.user_id === data.userId || data.userRole === 'OWNER' || data.userRole === 'ADMIN')) {
-            await this.env.DB.prepare('UPDATE messages SET is_deleted = 1 WHERE id = ?').bind(data.messageId).run();
+          if (data.isOwn || data.userRole === 'OWNER' || data.userRole === 'ADMIN') {
             this.broadcast({ type: 'message_deleted', messageId: data.messageId, channelId: data.channelId }, data.channelId);
           }
         }
 
         if (data.type === 'toggle_reaction') {
-          const existing = await this.env.DB.prepare(
-            'SELECT id FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?'
-          ).bind(data.messageId, data.userId, data.emoji).first();
-
-          if (existing) {
-            await this.env.DB.prepare('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?')
-              .bind(data.messageId, data.userId, data.emoji).run();
-          } else {
-            await this.env.DB.prepare('INSERT INTO message_reactions (id, message_id, user_id, emoji) VALUES (?, ?, ?, ?)')
-              .bind(crypto.randomUUID(), data.messageId, data.userId, data.emoji).run();
-          }
-
-          const { results: reactions } = await this.env.DB.prepare(
-            'SELECT emoji, user_id FROM message_reactions WHERE message_id = ?'
-          ).bind(data.messageId).all();
-          this.broadcast({ type: 'reaction_updated', messageId: data.messageId, reactions, channelId: data.channelId }, data.channelId);
+          if (!this.reactions[data.messageId]) this.reactions[data.messageId] = [];
+          const list = this.reactions[data.messageId];
+          const idx = list.findIndex(r => r.user_id === data.userId && r.emoji === data.emoji);
+          if (idx >= 0) list.splice(idx, 1);
+          else list.push({ emoji: data.emoji, user_id: data.userId });
+          this.broadcast({ type: 'reaction_updated', messageId: data.messageId, reactions: [...list], channelId: data.channelId }, data.channelId);
         }
 
         if (data.type === 'pin_message') {
-          await this.env.DB.prepare('INSERT OR IGNORE INTO pinned_messages (id, channel_id, message_id, pinned_by) VALUES (?, ?, ?, ?)')
-            .bind(crypto.randomUUID(), data.channelId, data.messageId, data.userId).run();
-          this.broadcast({ type: 'message_pinned', messageId: data.messageId, channelId: data.channelId }, data.channelId);
+          this.broadcast({ type: 'message_pinned', messageId: data.messageId, channelId: data.channelId, messageObj: data.messageObj }, data.channelId);
         }
 
         if (data.type === 'unpin_message') {
-          await this.env.DB.prepare('DELETE FROM pinned_messages WHERE message_id = ? AND channel_id = ?')
-            .bind(data.messageId, data.channelId).run();
           this.broadcast({ type: 'message_unpinned', messageId: data.messageId, channelId: data.channelId }, data.channelId);
         }
 
@@ -834,8 +748,6 @@ export class ChatRoom {
             .bind(pollId, data.channelId, data.question, JSON.stringify(options), data.userId).run();
           const messageId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
-          await this.env.DB.prepare('INSERT INTO messages (id, channel_id, user_id, content, type) VALUES (?, ?, ?, ?, ?)')
-            .bind(messageId, data.channelId, data.userId, pollId, 'POLL').run();
           this.broadcast({
             type: 'new_message',
             message: {

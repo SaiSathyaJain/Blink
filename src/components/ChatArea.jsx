@@ -467,11 +467,6 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
       .then(data => { if (Array.isArray(data)) setMessages(data); })
       .catch(() => {});
 
-    fetch(`${API}/api/pinned/${channel.id}`, { headers })
-      .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setPinnedMessages(data); })
-      .catch(() => {});
-
     const socket = new WebSocket(`${WS_URL}/api/ws?room=${channel.id}`);
     socket.onopen = () => socket.send(JSON.stringify({ type: 'join', channelId: channel.id, userId: user.id }));
 
@@ -513,10 +508,12 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
           setMessages(prev => prev.map(m => m.id === data.messageId ? { ...m, reactions: data.reactions } : m));
         }
 
-        if (data.type === 'message_pinned') {
-          const token = localStorage.getItem('blink_token');
-          fetch(`${API}/api/pinned/${channel.id}`, { headers: { Authorization: `Bearer ${token}` } })
-            .then(r => r.json()).then(d => { if (Array.isArray(d)) setPinnedMessages(d); }).catch(() => {});
+        if (data.type === 'message_pinned' && data.messageObj) {
+          const m = data.messageObj;
+          setPinnedMessages(prev => {
+            if (prev.some(p => p.message_id === m.id)) return prev;
+            return [...prev, { id: crypto.randomUUID(), message_id: m.id, content: m.content, author_name: m.full_name, is_deleted: m.is_deleted }];
+          });
         }
 
         if (data.type === 'message_unpinned') {
@@ -623,6 +620,8 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
       avatarUrl: user.avatar_url,
       content: inputText.trim(),
       replyToId: replyTo?.id || null,
+      replyContent: replyTo?.content || null,
+      replyUserName: replyTo?.full_name || null,
     });
     setInputText('');
     setReplyTo(null);
@@ -648,13 +647,15 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   }, [sendWS, user, channel]);
 
   const handleDelete = useCallback((messageId) => {
-    sendWS({ type: 'delete_message', messageId, userId: user.id, userRole: user.role, channelId: channel.id });
+    const msg = messages.find(m => m.id === messageId);
+    sendWS({ type: 'delete_message', messageId, userId: user.id, userRole: user.role, channelId: channel.id, isOwn: msg?.user_id === user.id });
     setMessages(prev => prev.map(m => m.id === messageId ? { ...m, is_deleted: 1 } : m));
-  }, [sendWS, user, channel]);
+  }, [sendWS, user, channel, messages]);
 
   const handlePin = useCallback((messageId) => {
-    sendWS({ type: 'pin_message', messageId, userId: user.id, channelId: channel.id });
-  }, [sendWS, user, channel]);
+    const messageObj = messages.find(m => m.id === messageId);
+    sendWS({ type: 'pin_message', messageId, userId: user.id, channelId: channel.id, messageObj });
+  }, [sendWS, user, channel, messages]);
 
   const handleUnpin = useCallback((messageId) => {
     sendWS({ type: 'unpin_message', messageId, channelId: channel.id });
