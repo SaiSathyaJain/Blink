@@ -48,6 +48,7 @@ const Login = ({ onLogin }) => {
       if (!res.ok) { setError(data.error || 'Google sign-in failed'); return; }
       localStorage.setItem('blink_token', data.token);
       localStorage.setItem('blink_user', JSON.stringify(data.user));
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
       onLogin(data.user);
     } catch {
       setError('Could not connect to server.');
@@ -72,6 +73,7 @@ const Login = ({ onLogin }) => {
       if (!res.ok) { setError(data.error || 'Something went wrong'); return; }
       localStorage.setItem('blink_token', data.token);
       localStorage.setItem('blink_user', JSON.stringify(data.user));
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
       onLogin(data.user);
     } catch {
       setError('Could not connect to server.');

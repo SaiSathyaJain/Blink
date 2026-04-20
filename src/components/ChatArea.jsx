@@ -653,14 +653,6 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
                 {inviteCopied ? <Check size={18} /> : <Link2 size={18} />}
               </button>
             )}
-            <button
-              onClick={requestNotifPermission}
-              className="text-muted"
-              title={notifPermission === 'granted' ? 'Notifications enabled' : notifPermission === 'denied' ? 'Notifications blocked in browser settings' : 'Enable notifications'}
-              style={{ display: 'flex', color: notifPermission === 'granted' ? 'var(--primary)' : undefined }}
-            >
-              {notifPermission === 'granted' ? <Bell size={18} /> : <BellOff size={18} />}
-            </button>
             <button onClick={() => { setShowSearch(p => !p); setSearchQuery(''); setSearchResults([]); }} className="text-muted" style={{ color: showSearch ? 'var(--primary)' : undefined }}>
               <Search size={18} />
             </button>

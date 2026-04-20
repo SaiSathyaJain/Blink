@@ -17,6 +17,7 @@ const App = () => {
   const [unreadCounts, setUnreadCounts] = useState({});
   const [theme, setTheme] = useState(() => localStorage.getItem('blink_theme') || 'light');
   const [toasts, setToasts] = useState([]);
+  const [showNotifBanner, setShowNotifBanner] = useState(false);
   const lastReadRef = useRef({});
   const allChannelsRef = useRef([]);
   const currentChannelRef = useRef(null);
@@ -152,6 +153,13 @@ const App = () => {
     }
   }, [currentChannel?.id, addToast]);
 
+  // Show notification banner for returning users who haven't granted permission
+  useEffect(() => {
+    if (user && 'Notification' in window && Notification.permission === 'default') {
+      setShowNotifBanner(true);
+    }
+  }, [user?.id]);
+
   const handleLogin = (u) => {
     setUser(u);
     lastReadRef.current = {};
@@ -162,6 +170,13 @@ const App = () => {
   return (
     <div className="app-container">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} onNavigate={handleSelectChannel} />
+      {showNotifBanner && (
+        <div style={{ position: 'fixed', top: '1rem', left: '50%', transform: 'translateX(-50%)', zIndex: 9999, backgroundColor: 'var(--bg-chat)', border: '1px solid var(--border)', borderRadius: '12px', padding: '0.75rem 1rem', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
+          <span style={{ color: 'var(--text-main)' }}>Enable desktop notifications to stay updated</span>
+          <button onClick={() => { Notification.requestPermission().then(() => setShowNotifBanner(false)); }} style={{ padding: '0.375rem 0.875rem', borderRadius: '8px', backgroundColor: 'var(--primary)', color: 'white', fontWeight: 600, fontSize: '0.8125rem' }}>Enable</button>
+          <button onClick={() => setShowNotifBanner(false)} style={{ color: 'var(--text-muted)', background: 'none', fontSize: '0.8125rem' }}>Dismiss</button>
+        </div>
+      )}
       <Sidebar
         currentView={currentView}
         currentChannel={currentChannel}
