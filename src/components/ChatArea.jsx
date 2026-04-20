@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
@@ -77,9 +78,50 @@ function groupReactions(reactions = []) {
   return Object.entries(map).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
+// ── PollMessage ───────────────────────────────────────────────────────────
+
+const PollMessage = ({ poll, onVote }) => {
+  if (!poll) return null;
+  const hasVoted = !!poll.userVote;
+  return (
+    <div style={{ marginTop: '0.5rem', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden', maxWidth: '400px', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ padding: '0.75rem 1rem 0.5rem', fontWeight: 700, fontSize: '0.9375rem', borderBottom: '1px solid var(--border)' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '4px' }}>Poll</span>
+        {poll.question}
+      </div>
+      <div style={{ padding: '0.5rem 0.75rem' }}>
+        {poll.options.map(opt => {
+          const pct = poll.totalVotes ? Math.round((opt.votes / poll.totalVotes) * 100) : 0;
+          const isMyVote = poll.userVote === opt.id;
+          return (
+            <button key={opt.id} onClick={() => onVote(poll.id, opt.id)}
+              style={{ display: 'block', width: '100%', position: 'relative', textAlign: 'left', padding: '0.5rem 0.625rem', borderRadius: '8px', marginBottom: '0.375rem', border: isMyVote ? '2px solid var(--primary)' : '2px solid var(--border)', overflow: 'hidden', background: 'transparent', cursor: 'pointer', transition: 'border-color 0.15s' }}
+              onMouseEnter={e => { if (!isMyVote) e.currentTarget.style.borderColor = 'var(--primary)'; }}
+              onMouseLeave={e => { if (!isMyVote) e.currentTarget.style.borderColor = 'var(--border)'; }}>
+              {hasVoted && (
+                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: `${pct}%`, backgroundColor: isMyVote ? 'var(--primary)' : 'var(--primary-light)', opacity: isMyVote ? 0.2 : 0.4, transition: 'width 0.4s ease' }} />
+              )}
+              <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: isMyVote ? 700 : 500, color: 'var(--text-main)' }}>
+                  {isMyVote && <Check size={12} style={{ color: 'var(--primary)', marginRight: 4, display: 'inline' }} />}
+                  {opt.text}
+                </span>
+                {hasVoted && <span style={{ fontSize: '0.75rem', fontWeight: 600, color: isMyVote ? 'var(--primary)' : 'var(--text-muted)', flexShrink: 0 }}>{pct}%</span>}
+              </div>
+            </button>
+          );
+        })}
+        <div style={{ fontSize: '0.7375rem', color: 'var(--text-muted)', marginTop: '0.25rem', padding: '0 0.25rem' }}>
+          {poll.totalVotes} vote{poll.totalVotes !== 1 ? 's' : ''} · {hasVoted ? 'You voted' : 'Click an option to vote'}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── MessageItem ───────────────────────────────────────────────────────────
 
-const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction, onEdit, onDelete, onPin, onUnpin, isPinned, onAvatarClick, onJump, isJumping, linkPreviews, onFetchPreview, isSeenTarget }) => {
+const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction, onEdit, onDelete, onPin, onUnpin, isPinned, onAvatarClick, onJump, isJumping, linkPreviews, onFetchPreview, isSeenTarget, onVotePoll }) => {
   const [hovered, setHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(msg.content);
@@ -199,6 +241,8 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
               <button onClick={() => setIsEditing(false)} style={{ fontSize: '0.8rem', padding: '3px 10px', borderRadius: '6px', border: '1px solid var(--border)', color: 'var(--text-muted)', backgroundColor: 'transparent' }}>Cancel</button>
             </div>
           </div>
+        ) : msg.type === 'POLL' ? (
+          <PollMessage poll={msg.poll} onVote={onVotePoll} />
         ) : (
           <div className={`text ${emojiOnly ? 'emoji-only' : ''}`} dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }} />
         )}
@@ -299,6 +343,9 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
   const [jumpingTo, setJumpingTo] = useState(null);
   const [readReceipts, setReadReceipts] = useState([]);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [showPollCreator, setShowPollCreator] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
   const inputRef = useRef(null);
 
   const copyChannelInvite = async () => {
@@ -316,6 +363,28 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
       setTimeout(() => setInviteCopied(false), 2500);
     } catch {}
   };
+
+  const handleCreatePoll = useCallback(() => {
+    const opts = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || opts.length < 2) return;
+    sendWS({ type: 'create_poll', channelId: channel.id, userId: user.id, userName: user.full_name, avatarUrl: user.avatar_url, question: pollQuestion.trim(), options: opts });
+    setShowPollCreator(false);
+    setPollQuestion('');
+    setPollOptions(['', '']);
+  }, [pollQuestion, pollOptions, channel, user, sendWS]);
+
+  const handleVotePoll = useCallback((pollId, optionId) => {
+    sendWS({ type: 'vote_poll', pollId, optionId, userId: user.id, channelId: channel.id });
+    setMessages(prev => prev.map(m => {
+      if (!m.poll || m.poll.id !== pollId) return m;
+      const oldVote = m.poll.userVote;
+      const options = m.poll.options.map(o => ({
+        ...o,
+        votes: o.id === optionId ? o.votes + 1 : (o.id === oldVote ? Math.max(0, o.votes - 1) : o.votes),
+      }));
+      return { ...m, poll: { ...m.poll, options, totalVotes: m.poll.totalVotes + (oldVote ? 0 : 1), userVote: optionId } };
+    }));
+  }, [sendWS, user, channel]);
 
   const requestNotifPermission = async () => {
     if (!('Notification' in window) || notifPermission === 'denied') return;
@@ -475,6 +544,14 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
 
         if (data.type === 'message_unpinned') {
           setPinnedMessages(prev => prev.filter(p => p.message_id !== data.messageId));
+        }
+
+        if (data.type === 'poll_updated') {
+          setMessages(prev => prev.map(m => {
+            if (!m.poll || m.poll.id !== data.pollId) return m;
+            const userVote = data.votes?.find(v => v.user_id === user.id)?.option_id || m.poll.userVote;
+            return { ...m, poll: { ...m.poll, options: data.options, totalVotes: data.totalVotes, userVote } };
+          }));
         }
       } catch {}
     };
@@ -687,6 +764,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
               linkPreviews={linkPreviews}
               onFetchPreview={fetchLinkPreview}
               isSeenTarget={seenMessageId === msg.id}
+              onVotePoll={handleVotePoll}
             />
           ))}
         </div>
@@ -733,6 +811,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
               <button className="text-muted" onClick={() => setIsModalOpen(true)}><Paperclip size={20} /></button>
               <button className="text-muted"><ImageIcon size={20} /></button>
               <button className="text-muted"><AtSign size={20} /></button>
+              <button className="text-muted" onClick={() => setShowPollCreator(true)} title="Create poll"><BarChart2 size={20} /></button>
               <div style={{ position: 'relative' }} ref={emojiPickerRef}>
                 <button className="text-muted" onClick={() => setShowEmojiPicker(p => !p)}><Smile size={20} /></button>
                 {showEmojiPicker && (
@@ -778,6 +857,53 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
       {showProfile && <ProfileSidebar user={profileUser} onClose={() => setShowProfile(false)} />}
       {showFiles && !showProfile && <FileSidebar messages={messages} onClose={() => setShowFiles(false)} />}
       <FileModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSend={handleFileSend} />
+
+      {showPollCreator && createPortal(
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div className="fade-in" style={{ width: '100%', maxWidth: '420px', backgroundColor: 'var(--bg-chat)', borderRadius: '20px', padding: '1.75rem', boxShadow: 'var(--shadow-md)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><BarChart2 size={18} style={{ color: 'var(--primary)' }} /> Create Poll</h3>
+              <button onClick={() => setShowPollCreator(false)} className="text-muted"><X size={18} /></button>
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>QUESTION</label>
+              <input type="text" autoFocus value={pollQuestion} onChange={e => setPollQuestion(e.target.value)}
+                placeholder="Ask a question…"
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.625rem 0.875rem', fontSize: '0.9375rem', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+              />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '0.5rem' }}>OPTIONS</label>
+              {pollOptions.map((opt, i) => (
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <input type="text" value={opt} onChange={e => setPollOptions(prev => prev.map((o, j) => j === i ? e.target.value : o))}
+                    placeholder={`Option ${i + 1}`}
+                    style={{ flex: 1, border: '1px solid var(--border)', borderRadius: '10px', padding: '0.5rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'var(--bg-main)', color: 'var(--text-main)' }}
+                  />
+                  {pollOptions.length > 2 && (
+                    <button onClick={() => setPollOptions(prev => prev.filter((_, j) => j !== i))} className="text-muted" style={{ padding: '0.5rem' }}><Minus size={14} /></button>
+                  )}
+                </div>
+              ))}
+              {pollOptions.length < 6 && (
+                <button onClick={() => setPollOptions(prev => [...prev, ''])}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.8125rem', color: 'var(--primary)', fontWeight: 600, background: 'none', padding: '0.25rem 0' }}>
+                  <Plus size={14} /> Add option
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPollCreator(false)} style={{ padding: '0.625rem 1.25rem', borderRadius: '10px', border: '1px solid var(--border)', fontSize: '0.9375rem', color: 'var(--text-muted)', backgroundColor: 'transparent' }}>Cancel</button>
+              <button onClick={handleCreatePoll}
+                disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}
+                style={{ padding: '0.625rem 1.25rem', borderRadius: '10px', backgroundColor: 'var(--primary)', color: 'white', fontSize: '0.9375rem', fontWeight: 600, opacity: (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2) ? 0.5 : 1 }}>
+                Create Poll
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

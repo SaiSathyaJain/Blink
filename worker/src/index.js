@@ -52,6 +52,20 @@ async function runMigrations(env) {
       last_read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (channel_id, user_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS polls (
+      id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      question TEXT NOT NULL,
+      options TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS poll_votes (
+      poll_id TEXT NOT NULL,
+      option_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      PRIMARY KEY (poll_id, user_id)
+    )`,
   ];
   for (const t of tables) { try { await env.DB.prepare(t).run(); } catch {} }
 
@@ -360,6 +374,7 @@ async function handleWebSocket(request, env) {
 // ── Messages ──────────────────────────────────────────────────────────────
 
 async function handleMessages(request, env) {
+  const authUser = getAuth(request);
   const channelId = new URL(request.url).pathname.split('/').pop();
   const { results: messages } = await env.DB.prepare(`
     SELECT m.id, m.channel_id, m.user_id, m.content, m.type, m.timestamp,
@@ -385,7 +400,35 @@ async function handleMessages(request, env) {
     if (!reactMap[r.message_id]) reactMap[r.message_id] = [];
     reactMap[r.message_id].push({ emoji: r.emoji, user_id: r.user_id });
   }
-  return corsResponse(JSON.stringify(messages.map(m => ({ ...m, reactions: reactMap[m.id] || [] }))));
+
+  // Embed poll data for POLL-type messages
+  const pollIds = messages.filter(m => m.type === 'POLL' && m.content).map(m => m.content);
+  let pollMap = {};
+  if (pollIds.length > 0) {
+    const ph = pollIds.map(() => '?').join(',');
+    const [{ results: polls }, { results: allVotes }] = await Promise.all([
+      env.DB.prepare(`SELECT id, question, options FROM polls WHERE id IN (${ph})`).bind(...pollIds).all(),
+      env.DB.prepare(`SELECT poll_id, option_id, user_id FROM poll_votes WHERE poll_id IN (${ph})`).bind(...pollIds).all(),
+    ]);
+    for (const p of polls) {
+      const options = JSON.parse(p.options || '[]');
+      const votes = allVotes.filter(v => v.poll_id === p.id);
+      const voteCounts = {};
+      votes.forEach(v => { voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1; });
+      const userVote = authUser ? (votes.find(v => v.user_id === authUser.id)?.option_id || null) : null;
+      pollMap[p.id] = {
+        id: p.id, question: p.question,
+        options: options.map(o => ({ ...o, votes: voteCounts[o.id] || 0 })),
+        totalVotes: votes.length, userVote,
+      };
+    }
+  }
+
+  return corsResponse(JSON.stringify(messages.map(m => ({
+    ...m,
+    reactions: reactMap[m.id] || [],
+    poll: m.type === 'POLL' ? (pollMap[m.content] || null) : undefined,
+  }))));
 }
 
 async function handleEditMessage(request, env) {
@@ -690,6 +733,42 @@ export class ChatRoom {
           await this.env.DB.prepare('DELETE FROM pinned_messages WHERE message_id = ? AND channel_id = ?')
             .bind(data.messageId, data.channelId).run();
           this.broadcast({ type: 'message_unpinned', messageId: data.messageId, channelId: data.channelId }, data.channelId);
+        }
+
+        if (data.type === 'create_poll') {
+          const pollId = crypto.randomUUID();
+          const options = (data.options || []).map(text => ({ id: crypto.randomUUID().slice(0, 8), text }));
+          await this.env.DB.prepare('INSERT INTO polls (id, channel_id, question, options, created_by) VALUES (?, ?, ?, ?, ?)')
+            .bind(pollId, data.channelId, data.question, JSON.stringify(options), data.userId).run();
+          const messageId = crypto.randomUUID();
+          const timestamp = new Date().toISOString();
+          await this.env.DB.prepare('INSERT INTO messages (id, channel_id, user_id, content, type) VALUES (?, ?, ?, ?, ?)')
+            .bind(messageId, data.channelId, data.userId, pollId, 'POLL').run();
+          this.broadcast({
+            type: 'new_message',
+            message: {
+              id: messageId, channel_id: data.channelId, user_id: data.userId,
+              content: pollId, type: 'POLL', full_name: data.userName,
+              avatar_url: data.avatarUrl || null, timestamp, is_deleted: 0, reactions: [],
+              poll: { id: pollId, question: data.question, options: options.map(o => ({ ...o, votes: 0 })), totalVotes: 0, userVote: null },
+            }
+          }, data.channelId);
+        }
+
+        if (data.type === 'vote_poll') {
+          await this.env.DB.prepare('INSERT OR REPLACE INTO poll_votes (poll_id, option_id, user_id) VALUES (?, ?, ?)')
+            .bind(data.pollId, data.optionId, data.userId).run();
+          const poll = await this.env.DB.prepare('SELECT id, question, options FROM polls WHERE id = ?').bind(data.pollId).first();
+          const { results: votes } = await this.env.DB.prepare('SELECT poll_id, option_id, user_id FROM poll_votes WHERE poll_id = ?').bind(data.pollId).all();
+          const options = JSON.parse(poll.options || '[]');
+          const voteCounts = {};
+          votes.forEach(v => { voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1; });
+          this.broadcast({
+            type: 'poll_updated',
+            pollId: data.pollId, channelId: data.channelId,
+            options: options.map(o => ({ ...o, votes: voteCounts[o.id] || 0 })),
+            totalVotes: votes.length, votes,
+          }, data.channelId);
         }
 
       } catch (e) { console.error('WS Error:', e); }
