@@ -213,6 +213,8 @@ input, textarea {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-chat);
+  overflow: hidden;
+  min-height: 0;
 }
 
 .header {
