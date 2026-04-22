@@ -822,6 +822,44 @@ async function handleDeleteScheduled(request, env) {
 
 // ── Nexus: Task Management ───────────────────────────────────────────────
 
+async function sendNexusDMNotification(env, fromUser, toUserId, taskTitle, projectName) {
+  if (!toUserId || toUserId === fromUser.id) return;
+  try {
+    // Find existing DM or create one
+    let dm = await env.DB.prepare(`
+      SELECT cm1.channel_id as id FROM channel_members cm1
+      JOIN channel_members cm2 ON cm1.channel_id = cm2.channel_id
+      JOIN channels c ON c.id = cm1.channel_id
+      WHERE cm1.user_id = ? AND cm2.user_id = ? AND c.type = 'DM' LIMIT 1
+    `).bind(fromUser.id, toUserId).first();
+
+    if (!dm) {
+      const dmId = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO channels (id, name, type) VALUES (?, 'DM', 'DM')").bind(dmId).run();
+      await env.DB.prepare('INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)').bind(dmId, fromUser.id, 'MEMBER').run();
+      await env.DB.prepare('INSERT INTO channel_members (channel_id, user_id, role) VALUES (?, ?, ?)').bind(dmId, toUserId, 'MEMBER').run();
+      dm = { id: dmId };
+    }
+
+    const messageId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const content = `You have been assigned a task in Nexus:\n*${taskTitle}* — Project: *${projectName}*`;
+    const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(dm.id));
+    await room.fetch(new Request('https://internal/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'new_message',
+        message: {
+          id: messageId, channel_id: dm.id, user_id: fromUser.id,
+          content, full_name: fromUser.full_name, avatar_url: fromUser.avatar_url || null,
+          timestamp, is_deleted: 0, edited_at: null, reactions: [],
+        },
+      }),
+    }));
+  } catch {}
+}
+
 async function handleGetProjects(request, env) {
   const user = getAuth(request);
   if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
@@ -887,7 +925,13 @@ async function handleCreateTask(request, env) {
   await env.DB.prepare(
     'INSERT INTO nexus_tasks (id, project_id, title, description, status, priority, assigned_to, due_date, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).bind(id, projectId, title.trim(), description?.trim() || '', 'TODO', priority || 'MEDIUM', assignedTo || null, dueDate || null, user.id, now, now).run();
-  const assignee = assignedTo ? await env.DB.prepare('SELECT full_name FROM users WHERE id = ?').bind(assignedTo).first() : null;
+  const [assignee, project] = await Promise.all([
+    assignedTo ? env.DB.prepare('SELECT full_name FROM users WHERE id = ?').bind(assignedTo).first() : null,
+    env.DB.prepare('SELECT name FROM nexus_projects WHERE id = ?').bind(projectId).first(),
+  ]);
+  if (assignedTo && assignedTo !== user.id) {
+    await sendNexusDMNotification(env, user, assignedTo, title.trim(), project?.name || 'Unknown');
+  }
   return corsResponse(JSON.stringify({ id, project_id: projectId, title: title.trim(), description: description?.trim() || '', status: 'TODO', priority: priority || 'MEDIUM', assigned_to: assignedTo || null, assignee_name: assignee?.full_name || null, due_date: dueDate || null, created_by: user.id, creator_name: user.full_name, created_at: now, updated_at: now }), 201);
 }
 
@@ -898,9 +942,22 @@ async function handleUpdateTask(request, env) {
   let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
   const { title, description, status, priority, assignedTo, dueDate } = body;
   const now = new Date().toISOString();
+
+  // Fetch current task to detect assignee change
+  const current = await env.DB.prepare(
+    'SELECT assigned_to, title, project_id FROM nexus_tasks WHERE id = ?'
+  ).bind(id).first();
+
   await env.DB.prepare(
     'UPDATE nexus_tasks SET title = COALESCE(?, title), description = COALESCE(?, description), status = COALESCE(?, status), priority = COALESCE(?, priority), assigned_to = ?, due_date = ?, updated_at = ? WHERE id = ?'
   ).bind(title?.trim() || null, description?.trim() || null, status || null, priority || null, assignedTo ?? null, dueDate ?? null, now, id).run();
+
+  // Notify new assignee if they were just assigned
+  if (current && assignedTo && assignedTo !== current.assigned_to && assignedTo !== user.id) {
+    const project = await env.DB.prepare('SELECT name FROM nexus_projects WHERE id = ?').bind(current.project_id).first();
+    await sendNexusDMNotification(env, user, assignedTo, title?.trim() || current.title, project?.name || 'Unknown');
+  }
+
   return corsResponse(JSON.stringify({ success: true, updated_at: now }));
 }
 
