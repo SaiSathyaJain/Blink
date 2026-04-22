@@ -257,21 +257,6 @@ export default {
     if (pathname === '/api/auth/login' && request.method === 'POST') return handleLogin(request, env);
     if (pathname === '/api/auth/google' && request.method === 'POST') return handleGoogleAuth(request, env);
 
-    if (pathname === '/api/debug-enc' && request.method === 'GET') {
-      const key = env.ENCRYPTION_KEY;
-      let testResult = 'unknown';
-      try {
-        const enc = await encrypt('test', key);
-        const dec = await decrypt(enc, key);
-        testResult = dec === 'test' ? 'working' : `decrypt_mismatch:${dec}`;
-      } catch (e) { testResult = `error:${e.message}`; }
-      return corsResponse(JSON.stringify({
-        hasKey: !!key,
-        keyLength: key ? key.length : 0,
-        encryptionTest: testResult,
-      }));
-    }
-
     if (pathname === '/api/users/profile' && request.method === 'PUT') return handleUpdateProfile(request, env);
     if (pathname === '/api/users' && request.method === 'GET') return handleGetUsers(request, env);
 
