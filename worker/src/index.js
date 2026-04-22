@@ -107,6 +107,33 @@ async function runMigrations(env) {
       sent INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`,
+    `CREATE TABLE IF NOT EXISTS nexus_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS nexus_tasks (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT DEFAULT 'TODO',
+      priority TEXT DEFAULT 'MEDIUM',
+      assigned_to TEXT,
+      due_date TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS nexus_comments (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
   ];
   for (const t of tables) { try { await env.DB.prepare(t).run(); } catch {} }
 
@@ -293,6 +320,16 @@ export default {
     if (pathname === '/api/scheduled' && request.method === 'POST') return handleCreateScheduled(request, env);
     if (pathname === '/api/scheduled' && request.method === 'GET') return handleGetScheduled(request, env);
     if (pathname.startsWith('/api/scheduled/') && request.method === 'DELETE') return handleDeleteScheduled(request, env);
+
+    if (pathname === '/api/nexus/projects' && request.method === 'GET') return handleGetProjects(request, env);
+    if (pathname === '/api/nexus/projects' && request.method === 'POST') return handleCreateProject(request, env);
+    if (pathname.startsWith('/api/nexus/projects/') && request.method === 'DELETE') return handleDeleteProject(request, env);
+    if (pathname.startsWith('/api/nexus/projects/') && pathname.endsWith('/tasks')) return handleGetTasks(request, env);
+    if (pathname === '/api/nexus/tasks' && request.method === 'POST') return handleCreateTask(request, env);
+    if (pathname.startsWith('/api/nexus/tasks/') && pathname.endsWith('/comments') && request.method === 'GET') return handleGetComments(request, env);
+    if (pathname.startsWith('/api/nexus/tasks/') && pathname.endsWith('/comments') && request.method === 'POST') return handleAddComment(request, env);
+    if (pathname.startsWith('/api/nexus/tasks/') && request.method === 'PUT') return handleUpdateTask(request, env);
+    if (pathname.startsWith('/api/nexus/tasks/') && request.method === 'DELETE') return handleDeleteTask(request, env);
 
     return new Response('Blink API', { status: 200 });
   }
@@ -781,6 +818,124 @@ async function handleDeleteScheduled(request, env) {
   const id = new URL(request.url).pathname.split('/').pop();
   await env.DB.prepare('DELETE FROM scheduled_messages WHERE id = ? AND user_id = ? AND sent = 0').bind(id, user.id).run();
   return corsResponse(JSON.stringify({ success: true }));
+}
+
+// ── Nexus: Task Management ───────────────────────────────────────────────
+
+async function handleGetProjects(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const { results } = await env.DB.prepare(`
+    SELECT p.*, u.full_name as creator_name,
+      (SELECT COUNT(*) FROM nexus_tasks t WHERE t.project_id = p.id) as task_count
+    FROM nexus_projects p JOIN users u ON p.created_by = u.id
+    ORDER BY p.created_at DESC
+  `).all();
+  return corsResponse(JSON.stringify(results));
+}
+
+async function handleCreateProject(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  const { name, description } = body;
+  if (!name?.trim()) return corsResponse(JSON.stringify({ error: 'name required' }), 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO nexus_projects (id, name, description, created_by, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, name.trim(), description?.trim() || '', user.id, now).run();
+  return corsResponse(JSON.stringify({ id, name: name.trim(), description: description?.trim() || '', created_by: user.id, creator_name: user.full_name, task_count: 0, created_at: now }), 201);
+}
+
+async function handleDeleteProject(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const id = new URL(request.url).pathname.split('/')[4];
+  const project = await env.DB.prepare('SELECT created_by FROM nexus_projects WHERE id = ?').bind(id).first();
+  if (!project) return corsResponse(JSON.stringify({ error: 'Not found' }), 404);
+  if (project.created_by !== user.id && user.role !== 'OWNER' && user.role !== 'ADMIN')
+    return corsResponse(JSON.stringify({ error: 'Forbidden' }), 403);
+  await env.DB.prepare('DELETE FROM nexus_comments WHERE task_id IN (SELECT id FROM nexus_tasks WHERE project_id = ?)').bind(id).run();
+  await env.DB.prepare('DELETE FROM nexus_tasks WHERE project_id = ?').bind(id).run();
+  await env.DB.prepare('DELETE FROM nexus_projects WHERE id = ?').bind(id).run();
+  return corsResponse(JSON.stringify({ success: true }));
+}
+
+async function handleGetTasks(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const projectId = new URL(request.url).pathname.split('/')[4];
+  const { results } = await env.DB.prepare(`
+    SELECT t.*, u.full_name as creator_name, a.full_name as assignee_name
+    FROM nexus_tasks t
+    JOIN users u ON t.created_by = u.id
+    LEFT JOIN users a ON t.assigned_to = a.id
+    WHERE t.project_id = ?
+    ORDER BY t.created_at ASC
+  `).bind(projectId).all();
+  return corsResponse(JSON.stringify(results));
+}
+
+async function handleCreateTask(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  const { projectId, title, description, priority, assignedTo, dueDate } = body;
+  if (!projectId || !title?.trim()) return corsResponse(JSON.stringify({ error: 'projectId and title required' }), 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    'INSERT INTO nexus_tasks (id, project_id, title, description, status, priority, assigned_to, due_date, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(id, projectId, title.trim(), description?.trim() || '', 'TODO', priority || 'MEDIUM', assignedTo || null, dueDate || null, user.id, now, now).run();
+  const assignee = assignedTo ? await env.DB.prepare('SELECT full_name FROM users WHERE id = ?').bind(assignedTo).first() : null;
+  return corsResponse(JSON.stringify({ id, project_id: projectId, title: title.trim(), description: description?.trim() || '', status: 'TODO', priority: priority || 'MEDIUM', assigned_to: assignedTo || null, assignee_name: assignee?.full_name || null, due_date: dueDate || null, created_by: user.id, creator_name: user.full_name, created_at: now, updated_at: now }), 201);
+}
+
+async function handleUpdateTask(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const id = new URL(request.url).pathname.split('/')[4];
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  const { title, description, status, priority, assignedTo, dueDate } = body;
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    'UPDATE nexus_tasks SET title = COALESCE(?, title), description = COALESCE(?, description), status = COALESCE(?, status), priority = COALESCE(?, priority), assigned_to = ?, due_date = ?, updated_at = ? WHERE id = ?'
+  ).bind(title?.trim() || null, description?.trim() || null, status || null, priority || null, assignedTo ?? null, dueDate ?? null, now, id).run();
+  return corsResponse(JSON.stringify({ success: true, updated_at: now }));
+}
+
+async function handleDeleteTask(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const id = new URL(request.url).pathname.split('/')[4];
+  await env.DB.prepare('DELETE FROM nexus_comments WHERE task_id = ?').bind(id).run();
+  await env.DB.prepare('DELETE FROM nexus_tasks WHERE id = ?').bind(id).run();
+  return corsResponse(JSON.stringify({ success: true }));
+}
+
+async function handleGetComments(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const taskId = new URL(request.url).pathname.split('/')[4];
+  const { results } = await env.DB.prepare(`
+    SELECT c.*, u.full_name, u.avatar_url FROM nexus_comments c
+    JOIN users u ON c.user_id = u.id
+    WHERE c.task_id = ? ORDER BY c.created_at ASC
+  `).bind(taskId).all();
+  return corsResponse(JSON.stringify(results));
+}
+
+async function handleAddComment(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+  const taskId = new URL(request.url).pathname.split('/')[4];
+  let body; try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+  if (!body.content?.trim()) return corsResponse(JSON.stringify({ error: 'content required' }), 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  await env.DB.prepare('INSERT INTO nexus_comments (id, task_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, taskId, user.id, body.content.trim(), now).run();
+  return corsResponse(JSON.stringify({ id, task_id: taskId, user_id: user.id, full_name: user.full_name, content: body.content.trim(), created_at: now }), 201);
 }
 
 // ── Durable Object: ChatRoom ──────────────────────────────────────────────

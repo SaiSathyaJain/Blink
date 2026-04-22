@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User } from 'lucide-react';
+import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User, Layers } from 'lucide-react';
 import CreateChannelModal from './CreateChannelModal';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
@@ -162,6 +162,16 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
               {getBadge(dm.id)}
             </a>
           ))}
+        </nav>
+
+        <nav className="nav-section">
+          <a href="#"
+            className={`nav-item ${currentView === 'nexus' ? 'active' : ''}`}
+            onClick={e => { e.preventDefault(); onViewChange('nexus'); }}
+          >
+            <Layers size={18} />
+            Nexus
+          </a>
         </nav>
 
         {(user.role === 'OWNER' || user.role === 'ADMIN') && (
