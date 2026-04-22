@@ -836,11 +836,6 @@ export class ChatRoom {
           }
           const messageId = crypto.randomUUID();
           const timestamp = new Date().toISOString();
-          const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
-          const encReplyContent = data.replyContent ? await encrypt(data.replyContent, this.env.ENCRYPTION_KEY) : null;
-          await this.env.DB.prepare(
-            'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(messageId, data.channelId, data.userId, encContent, 'TEXT', data.replyToId || null, encReplyContent, data.replyUserName || null).run();
           const messageObj = {
             id: messageId, channel_id: data.channelId, user_id: data.userId,
             content: data.content, full_name: data.userName, avatar_url: data.avatarUrl || null,
@@ -848,21 +843,33 @@ export class ChatRoom {
             reply_content: data.replyContent || null, reply_user_name: data.replyUserName || null,
             is_deleted: 0, edited_at: null, reactions: [],
           };
+          // Broadcast first for instant delivery, persist in background
           this.broadcast({ type: 'new_message', message: messageObj }, data.channelId);
+          this.state.waitUntil((async () => {
+            const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
+            const encReplyContent = data.replyContent ? await encrypt(data.replyContent, this.env.ENCRYPTION_KEY) : null;
+            await this.env.DB.prepare(
+              'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            ).bind(messageId, data.channelId, data.userId, encContent, 'TEXT', data.replyToId || null, encReplyContent, data.replyUserName || null).run();
+          })());
         }
 
         if (data.type === 'edit_message') {
           const editedAt = new Date().toISOString();
-          const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
-          await this.env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ? AND user_id = ?')
-            .bind(encContent, editedAt, data.messageId, data.userId).run();
           this.broadcast({ type: 'message_edited', messageId: data.messageId, content: data.content, editedAt, channelId: data.channelId }, data.channelId);
+          this.state.waitUntil((async () => {
+            const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
+            await this.env.DB.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ? AND user_id = ?')
+              .bind(encContent, editedAt, data.messageId, data.userId).run();
+          })());
         }
 
         if (data.type === 'delete_message') {
           if (data.isOwn || data.userRole === 'OWNER' || data.userRole === 'ADMIN') {
-            await this.env.DB.prepare('UPDATE messages SET is_deleted = 1 WHERE id = ?').bind(data.messageId).run();
             this.broadcast({ type: 'message_deleted', messageId: data.messageId, channelId: data.channelId }, data.channelId);
+            this.state.waitUntil(
+              this.env.DB.prepare('UPDATE messages SET is_deleted = 1 WHERE id = ?').bind(data.messageId).run()
+            );
           }
         }
 
