@@ -843,13 +843,13 @@ async function sendNexusDMNotification(env, fromUser, toUserId, taskTitle, proje
 
     const messageId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
-    const content = `You have been assigned a task in Nexus:\n*${taskTitle}* — Project: *${projectName}*`;
+    const nexusPayload = JSON.stringify({ taskTitle, projectName, assignedBy: fromUser.full_name });
 
     // Persist to DB so message appears even if recipient is offline
-    const encContent = await encrypt(content, env.ENCRYPTION_KEY);
+    const encContent = await encrypt(nexusPayload, env.ENCRYPTION_KEY);
     await env.DB.prepare(
       'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).bind(messageId, dm.id, fromUser.id, encContent, 'TEXT', null, null, null).run();
+    ).bind(messageId, dm.id, fromUser.id, encContent, 'NEXUS', null, null, null).run();
 
     // Also broadcast to anyone currently connected
     const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(dm.id));
@@ -860,7 +860,8 @@ async function sendNexusDMNotification(env, fromUser, toUserId, taskTitle, proje
         type: 'new_message',
         message: {
           id: messageId, channel_id: dm.id, user_id: fromUser.id,
-          content, full_name: fromUser.full_name, avatar_url: fromUser.avatar_url || null,
+          content: nexusPayload, type: 'NEXUS',
+          full_name: fromUser.full_name, avatar_url: fromUser.avatar_url || null,
           timestamp, is_deleted: 0, edited_at: null, reactions: [],
         },
       }),

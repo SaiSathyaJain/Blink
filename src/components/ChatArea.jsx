@@ -78,6 +78,38 @@ function groupReactions(reactions = []) {
   return Object.entries(map).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
+// ── NexusCard ─────────────────────────────────────────────────────────────
+
+const NexusCard = ({ content }) => {
+  let data = null;
+  try { data = JSON.parse(content); } catch { data = null; }
+  if (!data) {
+    return <div className="text">{content}</div>;
+  }
+  const { taskTitle, projectName, assignedBy } = data;
+  return (
+    <div style={{ marginTop: '0.5rem', maxWidth: '380px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ padding: '0.5rem 0.875rem', backgroundColor: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+        </svg>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'white', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Nexus · Task Assigned</span>
+      </div>
+      <div style={{ padding: '0.75rem 0.875rem' }}>
+        <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.375rem', lineHeight: 1.3 }}>{taskTitle}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>Project:</span> {projectName}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>Assigned by:</span> {assignedBy}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── PollMessage ───────────────────────────────────────────────────────────
 
 const PollMessage = ({ poll, onVote }) => {
@@ -243,6 +275,8 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
           </div>
         ) : msg.type === 'POLL' ? (
           <PollMessage poll={msg.poll} onVote={onVotePoll} />
+        ) : msg.type === 'NEXUS' ? (
+          <NexusCard content={msg.content} />
         ) : (
           <div className={`text ${emojiOnly ? 'emoji-only' : ''}`} dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }} />
         )}
@@ -480,11 +514,11 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
           setMessages(prev => [...prev, data.message]);
           if (data.message.user_id !== user.id) {
             if (!document.hidden) {
-              onNewMessage?.(channel.id, {
-                senderName: data.message.full_name,
-                preview: (data.message.content || '').slice(0, 60),
-                channel,
-              });
+              let preview = (data.message.content || '').slice(0, 60);
+              if (data.message.type === 'NEXUS') {
+                try { const d = JSON.parse(data.message.content); preview = `Task assigned: ${d.taskTitle}`; } catch {}
+              }
+              onNewMessage?.(channel.id, { senderName: data.message.full_name, preview, channel });
             }
           }
         }
