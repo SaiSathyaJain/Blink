@@ -844,6 +844,14 @@ async function sendNexusDMNotification(env, fromUser, toUserId, taskTitle, proje
     const messageId = crypto.randomUUID();
     const timestamp = new Date().toISOString();
     const content = `You have been assigned a task in Nexus:\n*${taskTitle}* — Project: *${projectName}*`;
+
+    // Persist to DB so message appears even if recipient is offline
+    const encContent = await encrypt(content, env.ENCRYPTION_KEY);
+    await env.DB.prepare(
+      'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(messageId, dm.id, fromUser.id, encContent, 'TEXT', null, null, null).run();
+
+    // Also broadcast to anyone currently connected
     const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(dm.id));
     await room.fetch(new Request('https://internal/', {
       method: 'POST',
@@ -857,7 +865,7 @@ async function sendNexusDMNotification(env, fromUser, toUserId, taskTitle, proje
         },
       }),
     }));
-  } catch {}
+  } catch (e) { console.error('Nexus DM notification failed:', e); }
 }
 
 async function handleGetProjects(request, env) {
