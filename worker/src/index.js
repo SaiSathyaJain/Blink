@@ -791,6 +791,20 @@ export class ChatRoom {
     this.env = env;
     this.sessions = [];
     this.reactions = {}; // in-memory: messageId -> [{emoji, user_id}]
+    this.msgRates = {};  // in-memory rate limit: userId -> { count, windowStart }
+  }
+
+  isRateLimited(userId) {
+    const now = Date.now();
+    const r = this.msgRates[userId] || { count: 0, windowStart: now };
+    if (now - r.windowStart > 10000) {
+      this.msgRates[userId] = { count: 1, windowStart: now };
+      return false;
+    }
+    if (r.count >= 15) return true;
+    r.count++;
+    this.msgRates[userId] = r;
+    return false;
   }
 
   async fetch(request) {
@@ -829,8 +843,7 @@ export class ChatRoom {
         }
 
         if (data.type === 'message') {
-          const { success: msgOk } = await rateLimit(this.env, `msg:${data.userId}`, 15, '10 s');
-          if (!msgOk) {
+          if (this.isRateLimited(data.userId)) {
             webSocket.send(JSON.stringify({ type: 'error', message: 'Sending too fast — slow down a little.' }));
             return;
           }
