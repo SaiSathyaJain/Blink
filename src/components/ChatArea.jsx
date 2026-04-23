@@ -380,7 +380,6 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionUsers, setMentionUsers] = useState([]);
   const [showSearch, setShowSearch] = useState(false);
-  const [semanticMode, setSemanticMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -474,18 +473,17 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
     });
   }, []);
 
-  const runSearch = useCallback(async (q, semantic = semanticMode) => {
+  const runSearch = useCallback(async (q) => {
     if (!q.trim()) { setSearchResults([]); return; }
     setSearchLoading(true);
     const token = localStorage.getItem('blink_token');
     try {
-      const endpoint = semantic ? '/api/semantic-search' : '/api/search';
-      const res = await fetch(`${API}${endpoint}?q=${encodeURIComponent(q)}&channelId=${channel.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${API}/api/semantic-search?q=${encodeURIComponent(q)}&channelId=${channel.id}`, { headers: { Authorization: `Bearer ${token}` } });
       const d = await res.json();
       setSearchResults(Array.isArray(d) ? d : []);
     } catch {}
     setSearchLoading(false);
-  }, [channel.id, semanticMode]);
+  }, [channel.id]);
 
   // Compute "seen" target: last own message the other user has read (DM only)
   const seenMessageId = useMemo(() => {
@@ -827,24 +825,13 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
           <div style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg-main)', padding: '0.75rem 1.5rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <input
-                type="text" placeholder={semanticMode ? 'Search by meaning…' : 'Search messages…'} autoFocus
+                type="text" placeholder="Search messages…" autoFocus
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); runSearch(e.target.value); }}
                 style={{ flex: 1, border: '1px solid var(--border)', borderRadius: '8px', padding: '0.5rem 0.75rem', fontSize: '0.875rem', backgroundColor: 'var(--bg-chat)', color: 'var(--text-main)' }}
               />
-              <button
-                onClick={() => { setSemanticMode(m => !m); if (searchQuery) runSearch(searchQuery, !semanticMode); }}
-                title={semanticMode ? 'AI semantic search (on)' : 'Switch to AI semantic search'}
-                style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, border: '1px solid var(--border)', backgroundColor: semanticMode ? 'var(--primary)' : 'transparent', color: semanticMode ? 'white' : 'var(--text-muted)', flexShrink: 0 }}>
-                AI
-              </button>
               <button onClick={() => setShowSearch(false)} className="text-muted"><X size={16} /></button>
             </div>
-            {semanticMode && (
-              <p style={{ fontSize: '0.7rem', color: 'var(--primary)', marginBottom: '0.5rem', fontWeight: 500 }}>
-                Semantic search — finds messages by meaning, not just exact words
-              </p>
-            )}
             <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
               {searchLoading && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.5rem 0' }}>Searching…</p>}
               {!searchLoading && searchQuery && searchResults.length === 0 && (
