@@ -911,7 +911,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
             </div>
           )}
 
-          <div className="input-container" style={{ border: '1px solid var(--border)', padding: '1rem' }}>
+          <div className="input-container" style={{ border: '1px solid var(--border)', padding: '0.5rem 0.75rem' }}>
             <div style={{ display: 'flex', gap: '1rem' }}>
               <button className="text-muted" onClick={() => setIsModalOpen(true)}><Paperclip size={20} /></button>
               <button className="text-muted"><ImageIcon size={20} /></button>
@@ -930,6 +930,7 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
             <textarea
               ref={inputRef}
               className="message-input"
+              rows={1}
               placeholder={channel.type === 'DM' ? `Message ${channel.other_user_name}…` : `Message #${channel.name}…`}
               value={inputText}
               onChange={e => {
