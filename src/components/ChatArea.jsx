@@ -202,7 +202,7 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowReactionPicker(false); }}
     >
-      {hovered && (
+      {hovered && msg.type !== 'NEXUS' && (
         <div className="message-actions">
           {QUICK_REACTIONS.map(emoji => (
             <button key={emoji} className="action-btn reaction-quick" onClick={() => onToggleReaction(msg.id, emoji)} title={emoji}>
@@ -231,7 +231,13 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
         </div>
       )}
 
-      {msg.avatar_url ? (
+      {msg.type === 'NEXUS' ? (
+        <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
+          </svg>
+        </div>
+      ) : msg.avatar_url ? (
         <img src={msg.avatar_url} alt="" onClick={() => onAvatarClick({ name: msg.full_name, id: msg.user_id })}
           style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', cursor: 'pointer', flexShrink: 0 }} />
       ) : (
@@ -240,8 +246,9 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
 
       <div className="message-content">
         <div className="message-header">
-          <span className="user-name" style={{ cursor: 'pointer' }} onClick={() => onAvatarClick({ name: msg.full_name, id: msg.user_id })}>
-            {msg.full_name}
+          <span className="user-name" style={{ cursor: msg.type === 'NEXUS' ? 'default' : 'pointer' }}
+            onClick={() => msg.type !== 'NEXUS' && onAvatarClick({ name: msg.full_name, id: msg.user_id })}>
+            {msg.type === 'NEXUS' ? 'Nexus' : msg.full_name}
           </span>
           <span className="timestamp" title={formatFull(msg.timestamp)}>{formatTime(msg.timestamp)}</span>
           {msg.edited_at && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>(edited)</span>}
