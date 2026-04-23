@@ -133,38 +133,6 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
         </nav>
 
         <nav className="nav-section">
-          <div className="nav-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Direct Messages</span>
-            <button onClick={openNewDM} className="text-muted" style={{ padding: '2px' }} title="New DM">
-              <Plus size={14} />
-            </button>
-          </div>
-          {dms.length === 0 && (
-            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', padding: '0.25rem 0.5rem' }}>No direct messages yet</p>
-          )}
-          {dms.map(dm => (
-            <a key={dm.id} href="#"
-              className={`nav-item ${currentView === 'chat' && currentChannel?.id === dm.id ? 'active' : ''}`}
-              onClick={e => { e.preventDefault(); onSelectChannel(dm); }}
-              style={{ justifyContent: 'space-between' }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', overflow: 'hidden' }}>
-                <span style={{ position: 'relative', width: 20, height: 20, flexShrink: 0 }}>
-                  <MessageCircle size={16} />
-                  <span style={{
-                    position: 'absolute', bottom: -1, right: -1, width: 7, height: 7,
-                    borderRadius: '50%', border: '1.5px solid var(--bg-sidebar)',
-                    backgroundColor: dm.other_user_status === 'ONLINE' ? '#10b981' : '#94a3b8',
-                  }} />
-                </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dm.other_user_name}</span>
-              </span>
-              {getBadge(dm.id)}
-            </a>
-          ))}
-        </nav>
-
-        <nav className="nav-section">
           <a href="#"
             className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
             onClick={e => { e.preventDefault(); onViewChange('inbox'); }}
