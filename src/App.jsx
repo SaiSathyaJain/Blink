@@ -45,6 +45,19 @@ const App = () => {
     if (savedUser) setUser(JSON.parse(savedUser));
   }, []);
 
+  // Prevent browser back/forward from navigating away from the SPA while logged in
+  useEffect(() => {
+    if (!user) return;
+    window.history.pushState({ blink: true }, '');
+    const handlePopState = () => {
+      if (localStorage.getItem('blink_user')) {
+        window.history.pushState({ blink: true }, '');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [user]);
+
 
   useEffect(() => {
     if (!user) return;
