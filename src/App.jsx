@@ -141,7 +141,7 @@ const App = () => {
       lastReadRef.current[currentChannel.id] = new Date().toISOString();
     }
     setCurrentChannel(ch);
-    setPreviousView(prev => currentView !== 'chat' ? currentView : prev);
+    setPreviousView(ch.type === 'DM' && currentView !== 'chat' ? currentView : null);
     setCurrentView('chat');
     setUnreadCounts(prev => ({ ...prev, [ch.id]: 0 }));
   }, [currentChannel, currentView]);
