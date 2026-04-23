@@ -271,7 +271,7 @@ export default function Nexus({ user }) {
                 <p style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', margin: 0 }}>{p.task_count} task{p.task_count !== 1 ? 's' : ''}</p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-                {isAdmin && <button onClick={e => { e.stopPropagation(); deleteProject(p.id); }} className="text-muted"><Trash2 size={13} /></button>}
+                {(isAdmin || p.created_by === user.id) && <button onClick={e => { e.stopPropagation(); deleteProject(p.id); }} className="text-muted"><Trash2 size={13} /></button>}
                 <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />
               </div>
             </div>
@@ -293,10 +293,18 @@ export default function Nexus({ user }) {
                 <h2 style={{ fontWeight: 700, fontSize: '1.125rem', margin: 0 }}>{selectedProject.name}</h2>
                 {selectedProject.description && <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: 0 }}>{selectedProject.description}</p>}
               </div>
-              <button onClick={() => setShowNewTask(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', backgroundColor: 'var(--primary)', color: 'white', borderRadius: '10px', fontWeight: 600, fontSize: '0.875rem' }}>
-                <Plus size={15} /> New Task
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {(isAdmin || selectedProject.created_by === user.id) && (
+                  <button onClick={() => deleteProject(selectedProject.id)} title="Delete project"
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 0.875rem', border: '1px solid #fecaca', color: '#dc2626', borderRadius: '10px', fontWeight: 600, fontSize: '0.875rem', backgroundColor: 'transparent' }}>
+                    <Trash2 size={14} /> Delete
+                  </button>
+                )}
+                <button onClick={() => setShowNewTask(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.5rem 1rem', backgroundColor: 'var(--primary)', color: 'white', borderRadius: '10px', fontWeight: 600, fontSize: '0.875rem' }}>
+                  <Plus size={15} /> New Task
+                </button>
+              </div>
             </div>
 
             {/* Kanban columns */}
