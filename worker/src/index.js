@@ -294,6 +294,7 @@ export default {
     if (pathname === '/api/dm' && request.method === 'GET') return handleGetDMs(request, env);
 
     if (pathname === '/api/unread' && request.method === 'GET') return handleGetUnread(request, env);
+    if (pathname === '/api/inbox' && request.method === 'GET') return handleInbox(request, env);
 
     if (pathname.startsWith('/api/ws')) return handleWebSocket(request, env);
 
@@ -470,6 +471,70 @@ async function handleCreateChannel(request, env) {
 }
 
 // ── DMs ───────────────────────────────────────────────────────────────────
+
+async function handleInbox(request, env) {
+  const user = getAuth(request);
+  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+
+  // DM conversations with last message preview
+  const { results: dmRows } = await env.DB.prepare(`
+    SELECT c.id, other_u.id as other_user_id, other_u.full_name as other_user_name,
+           other_u.avatar_url as other_user_avatar, other_u.status as other_user_status,
+           lm.id as last_msg_id, lm.content as last_content, lm.type as last_type,
+           lm.timestamp as last_timestamp, lm.user_id as last_user_id
+    FROM channels c
+    JOIN channel_members cm1 ON cm1.channel_id = c.id AND cm1.user_id = ?
+    JOIN channel_members cm2 ON cm2.channel_id = c.id AND cm2.user_id != ?
+    JOIN users other_u ON other_u.id = cm2.user_id
+    LEFT JOIN messages lm ON lm.id = (
+      SELECT id FROM messages WHERE channel_id = c.id AND is_deleted = 0 ORDER BY timestamp DESC LIMIT 1
+    )
+    WHERE c.type = 'DM'
+    ORDER BY lm.timestamp DESC
+  `).bind(user.id, user.id).all();
+
+  const key = env.ENCRYPTION_KEY;
+  const conversations = await Promise.all(dmRows.map(async row => {
+    let preview = '';
+    if (row.last_content) {
+      const dec = await decrypt(row.last_content, key);
+      if (row.last_type === 'NEXUS') {
+        try { const d = JSON.parse(dec); preview = `Task assigned: ${d.taskTitle}`; } catch { preview = 'Nexus notification'; }
+      } else {
+        preview = dec;
+      }
+    }
+    return {
+      id: row.id, type: 'DM',
+      other_user_id: row.other_user_id, other_user_name: row.other_user_name,
+      other_user_avatar: row.other_user_avatar, other_user_status: row.other_user_status,
+      last_preview: preview, last_type: row.last_type,
+      last_timestamp: row.last_timestamp, last_user_id: row.last_user_id,
+    };
+  }));
+
+  // Nexus notifications received by this user
+  const { results: notifRows } = await env.DB.prepare(`
+    SELECT m.id, m.content, m.timestamp, m.channel_id,
+           sender.full_name as sender_name, sender.avatar_url as sender_avatar
+    FROM messages m
+    JOIN users sender ON sender.id = m.user_id
+    WHERE m.channel_id IN (
+      SELECT cm.channel_id FROM channel_members cm WHERE cm.user_id = ?
+    )
+    AND m.type = 'NEXUS' AND m.user_id != ? AND m.is_deleted = 0
+    ORDER BY m.timestamp DESC LIMIT 30
+  `).bind(user.id, user.id).all();
+
+  const notifications = await Promise.all(notifRows.map(async row => {
+    const dec = await decrypt(row.content, key);
+    let data = null;
+    try { data = JSON.parse(dec); } catch {}
+    return { id: row.id, channel_id: row.channel_id, timestamp: row.timestamp, sender_name: row.sender_name, sender_avatar: row.sender_avatar, nexusData: data };
+  }));
+
+  return corsResponse(JSON.stringify({ conversations, notifications }));
+}
 
 async function handleGetDMs(request, env) {
   const user = getAuth(request);

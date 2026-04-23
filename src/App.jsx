@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import AdminPanel from './components/AdminPanel';
 import Nexus from './components/Nexus';
+import Inbox from './components/Inbox';
 import Login from './components/Login';
 import ToastContainer from './components/Toast';
 
@@ -214,6 +215,8 @@ const App = () => {
             user={user}
             onNewMessage={handleNewMessage}
           />
+        ) : currentView === 'inbox' ? (
+          <Inbox user={user} onSelectChannel={handleSelectChannel} unreadCounts={unreadCounts} />
         ) : currentView === 'nexus' ? (
           <Nexus user={user} />
         ) : currentView === 'admin' && (user.role === 'OWNER' || user.role === 'ADMIN') ? (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User, Layers } from 'lucide-react';
+import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User, Layers, Inbox } from 'lucide-react';
 import CreateChannelModal from './CreateChannelModal';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
@@ -162,6 +162,30 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
               {getBadge(dm.id)}
             </a>
           ))}
+        </nav>
+
+        <nav className="nav-section">
+          <a href="#"
+            className={`nav-item ${currentView === 'inbox' ? 'active' : ''}`}
+            onClick={e => { e.preventDefault(); onViewChange('inbox'); }}
+            style={{ justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <Inbox size={18} />
+              Inbox
+            </span>
+            {(() => {
+              const total = Object.entries(unreadCounts || {}).reduce((sum, [id, count]) => {
+                const isDM = dms.some(d => d.id === id);
+                return isDM ? sum + count : sum;
+              }, 0);
+              return total > 0 ? (
+                <span style={{ minWidth: 18, height: 18, backgroundColor: 'var(--primary)', color: 'white', borderRadius: '9px', fontSize: '0.6875rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
+                  {total > 99 ? '99+' : total}
+                </span>
+              ) : null;
+            })()}
+          </a>
         </nav>
 
         <nav className="nav-section">
