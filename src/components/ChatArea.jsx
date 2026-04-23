@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus, Clock,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus, Clock, ArrowLeft,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
@@ -353,7 +353,9 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
 
 // ── ChatArea ──────────────────────────────────────────────────────────────
 
-const ChatArea = ({ channel, user, onNewMessage }) => {
+const VIEW_LABELS = { inbox: 'Inbox', nexus: 'Nexus', admin: 'Admin' };
+
+const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -727,6 +729,12 @@ const ChatArea = ({ channel, user, onNewMessage }) => {
         {/* Header */}
         <header className="header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            {onBack && (
+              <button onClick={onBack} title={`Back to ${VIEW_LABELS[previousView] || 'previous'}`}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--primary)', fontWeight: 600, fontSize: '0.875rem', padding: '0.25rem 0.5rem', borderRadius: '8px', backgroundColor: 'var(--primary-light)' }}>
+                <ArrowLeft size={15} /> {VIEW_LABELS[previousView] || 'Back'}
+              </button>
+            )}
             {channel.type === 'DM' ? <MessageCircle size={20} className="text-muted" /> : <Hash size={20} className="text-muted" />}
             <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{channelTitle}</h2>
           </div>

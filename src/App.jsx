@@ -13,6 +13,7 @@ const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
 const App = () => {
   const [user, setUser] = useState(null);
   const [currentView, setCurrentView] = useState('chat');
+  const [previousView, setPreviousView] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
   const [channels, setChannels] = useState([]);
   const [dms, setDms] = useState([]);
@@ -140,9 +141,14 @@ const App = () => {
       lastReadRef.current[currentChannel.id] = new Date().toISOString();
     }
     setCurrentChannel(ch);
+    setPreviousView(prev => currentView !== 'chat' ? currentView : prev);
     setCurrentView('chat');
     setUnreadCounts(prev => ({ ...prev, [ch.id]: 0 }));
-  }, [currentChannel]);
+  }, [currentChannel, currentView]);
+
+  const handleBack = useCallback(() => {
+    if (previousView) { setCurrentView(previousView); setPreviousView(null); }
+  }, [previousView]);
 
   const handleCreateChannel = useCallback((newChannel) => {
     setChannels(prev => [...prev, newChannel].sort((a, b) => a.name.localeCompare(b.name)));
@@ -199,7 +205,7 @@ const App = () => {
         channels={channels}
         dms={dms}
         onSelectChannel={handleSelectChannel}
-        onViewChange={setCurrentView}
+        onViewChange={(v) => { setCurrentView(v); setPreviousView(null); }}
         user={user}
         theme={theme}
         onToggleTheme={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
@@ -214,6 +220,8 @@ const App = () => {
             channel={currentChannel}
             user={user}
             onNewMessage={handleNewMessage}
+            onBack={previousView ? handleBack : null}
+            previousView={previousView}
           />
         ) : currentView === 'inbox' ? (
           <Inbox user={user} onSelectChannel={handleSelectChannel} unreadCounts={unreadCounts} />
