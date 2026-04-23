@@ -42,34 +42,19 @@ const App = () => {
     localStorage.setItem('blink_theme', theme);
   }, [theme]);
 
-  // Anchor the SPA in history so back/forward stay within the app
+  // Re-sync auth state whenever the page becomes visible (back/forward, bfcache, tab switch)
   useEffect(() => {
-    window.history.replaceState({ blink: true }, '');
-
-    // Same-document back/forward (history API navigation)
-    const handlePopState = () => {
+    const syncAuth = () => {
       try {
         const saved = localStorage.getItem('blink_user');
         setUser(saved ? JSON.parse(saved) : null);
       } catch { setUser(null); }
-      window.history.replaceState({ blink: true }, '');
     };
-
-    // bfcache restoration (browser cached the page before login)
-    const handlePageShow = (e) => {
-      if (e.persisted) {
-        try {
-          const saved = localStorage.getItem('blink_user');
-          setUser(saved ? JSON.parse(saved) : null);
-        } catch { setUser(null); }
-      }
-    };
-
-    window.addEventListener('popstate', handlePopState);
-    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('pageshow', syncAuth);
+    window.addEventListener('popstate', syncAuth);
     return () => {
-      window.removeEventListener('popstate', handlePopState);
-      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('pageshow', syncAuth);
+      window.removeEventListener('popstate', syncAuth);
     };
   }, []);
 
