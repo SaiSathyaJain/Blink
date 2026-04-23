@@ -11,7 +11,9 @@ const API = 'https://blinkv2.saisathyajain.workers.dev';
 const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
 
 const App = () => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { const s = localStorage.getItem('blink_user'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
   const [currentView, setCurrentView] = useState('chat');
   const [previousView, setPreviousView] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
@@ -40,23 +42,36 @@ const App = () => {
     localStorage.setItem('blink_theme', theme);
   }, [theme]);
 
+  // Anchor the SPA in history so back/forward stay within the app
   useEffect(() => {
-    const savedUser = localStorage.getItem('blink_user');
-    if (savedUser) setUser(JSON.parse(savedUser));
-  }, []);
+    window.history.replaceState({ blink: true }, '');
 
-  // Prevent browser back/forward from navigating away from the SPA while logged in
-  useEffect(() => {
-    if (!user) return;
-    window.history.pushState({ blink: true }, '');
+    // Same-document back/forward (history API navigation)
     const handlePopState = () => {
-      if (localStorage.getItem('blink_user')) {
-        window.history.pushState({ blink: true }, '');
+      try {
+        const saved = localStorage.getItem('blink_user');
+        setUser(saved ? JSON.parse(saved) : null);
+      } catch { setUser(null); }
+      window.history.replaceState({ blink: true }, '');
+    };
+
+    // bfcache restoration (browser cached the page before login)
+    const handlePageShow = (e) => {
+      if (e.persisted) {
+        try {
+          const saved = localStorage.getItem('blink_user');
+          setUser(saved ? JSON.parse(saved) : null);
+        } catch { setUser(null); }
       }
     };
+
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [user]);
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('pageshow', handlePageShow);
+    };
+  }, []);
 
 
   useEffect(() => {
