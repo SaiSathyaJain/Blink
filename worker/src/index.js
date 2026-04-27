@@ -622,34 +622,40 @@ async function handleWebSocket(request, env) {
 // ── Messages ──────────────────────────────────────────────────────────────
 
 async function handleSendMessage(request, env) {
-  const user = getAuth(request);
-  if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
-  const { channelId, content, type: bodyType } = await request.json();
-  if (!channelId || !content?.trim()) return corsResponse(JSON.stringify({ error: 'Missing fields' }), 400);
-  const msgType = ['GMAIL', 'DRIVE'].includes(bodyType) ? bodyType : 'text';
-  const messageId = crypto.randomUUID();
-  const timestamp = new Date().toISOString();
-  const encContent = await encrypt(content.trim(), env.ENCRYPTION_KEY);
-  await env.DB.prepare(
-    'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).bind(messageId, channelId, user.userId, encContent, msgType, null, null, null).run();
-  const sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(user.userId).first();
-  const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(channelId));
-  await room.fetch(new Request('https://internal/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      type: 'new_message',
-      message: {
-        id: messageId, channel_id: channelId, user_id: user.userId,
-        content: content.trim(), type: msgType,
-        full_name: sender?.full_name || user.email || 'Unknown',
-        avatar_url: sender?.avatar_url || null,
-        timestamp, is_deleted: 0, edited_at: null, reactions: [],
-      },
-    }),
-  }));
-  return corsResponse(JSON.stringify({ ok: true, messageId }), 200);
+  try {
+    const user = getAuth(request);
+    if (!user) return corsResponse(JSON.stringify({ error: 'Unauthorized' }), 401);
+    let body;
+    try { body = await request.json(); } catch { return corsResponse(JSON.stringify({ error: 'Invalid JSON' }), 400); }
+    const { channelId, content, type: bodyType } = body;
+    if (!channelId || !content?.trim()) return corsResponse(JSON.stringify({ error: 'Missing fields' }), 400);
+    const msgType = ['GMAIL', 'DRIVE'].includes(bodyType) ? bodyType : 'text';
+    const messageId = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const encContent = await encrypt(content.trim(), env.ENCRYPTION_KEY);
+    await env.DB.prepare(
+      'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).bind(messageId, channelId, user.userId, encContent, msgType, null, null, null).run();
+    const sender = await env.DB.prepare('SELECT full_name, avatar_url FROM users WHERE id = ?').bind(user.userId).first();
+    const room = env.CHAT_ROOM.get(env.CHAT_ROOM.idFromName(channelId));
+    await room.fetch(new Request('https://internal/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'new_message',
+        message: {
+          id: messageId, channel_id: channelId, user_id: user.userId,
+          content: content.trim(), type: msgType,
+          full_name: sender?.full_name || user.email || 'Unknown',
+          avatar_url: sender?.avatar_url || null,
+          timestamp, is_deleted: 0, edited_at: null, reactions: [],
+        },
+      }),
+    }));
+    return corsResponse(JSON.stringify({ ok: true, messageId }), 200);
+  } catch (e) {
+    return corsResponse(JSON.stringify({ error: 'Internal error', detail: e?.message }), 500);
+  }
 }
 
 async function handleMessages(request, env) {
