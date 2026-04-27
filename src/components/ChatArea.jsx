@@ -356,7 +356,7 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
 
 const VIEW_LABELS = { inbox: 'Inbox', nexus: 'Nexus', admin: 'Admin' };
 
-const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
+const ChatArea = ({ channel, user, onNewMessage, onBack, previousView, draftMessage, onDraftConsumed }) => {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -592,6 +592,13 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (draftMessage) {
+      setInputText(draftMessage);
+      onDraftConsumed?.();
+    }
+  }, [draftMessage]);
 
   useEffect(() => {
     const handler = (e) => {

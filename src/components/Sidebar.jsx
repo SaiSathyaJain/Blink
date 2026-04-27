@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User, Layers, Inbox } from 'lucide-react';
+import { Hash, MessageSquare, Settings, Search, Plus, LogOut, Sun, Moon, MessageCircle, X, Check, User, Layers, Inbox, Mail, HardDrive } from 'lucide-react';
 import CreateChannelModal from './CreateChannelModal';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
@@ -163,6 +163,23 @@ const Sidebar = ({ currentView, currentChannel, channels, dms = [], onSelectChan
           >
             <Layers size={18} />
             Nexus
+          </a>
+        </nav>
+
+        <nav className="nav-section">
+          <a href="#"
+            className={`nav-item ${currentView === 'gmail' ? 'active' : ''}`}
+            onClick={e => { e.preventDefault(); onViewChange('gmail'); }}
+          >
+            <Mail size={18} />
+            Gmail
+          </a>
+          <a href="#"
+            className={`nav-item ${currentView === 'drive' ? 'active' : ''}`}
+            onClick={e => { e.preventDefault(); onViewChange('drive'); }}
+          >
+            <HardDrive size={18} />
+            Drive
           </a>
         </nav>
 

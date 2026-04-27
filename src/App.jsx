@@ -4,6 +4,8 @@ import ChatArea from './components/ChatArea';
 import AdminPanel from './components/AdminPanel';
 import Nexus from './components/Nexus';
 import Inbox from './components/Inbox';
+import Gmail from './components/Gmail';
+import GoogleDrive from './components/GoogleDrive';
 import Login from './components/Login';
 import ToastContainer from './components/Toast';
 
@@ -22,6 +24,7 @@ const App = () => {
   const [unreadCounts, setUnreadCounts] = useState({});
   const [theme, setTheme] = useState(() => localStorage.getItem('blink_theme') || 'light');
   const [toasts, setToasts] = useState([]);
+  const [draftMessage, setDraftMessage] = useState('');
   const [showNotifBanner, setShowNotifBanner] = useState(false);
   const lastReadRef = useRef({});
   const allChannelsRef = useRef([]);
@@ -163,6 +166,11 @@ const App = () => {
     if (previousView) { setCurrentView(previousView); setPreviousView(null); }
   }, [previousView]);
 
+  const handleShareToChannel = useCallback((channel, text) => {
+    handleSelectChannel(channel);
+    setDraftMessage(text);
+  }, [handleSelectChannel]);
+
   const handleCreateChannel = useCallback((newChannel) => {
     setChannels(prev => [...prev, newChannel].sort((a, b) => a.name.localeCompare(b.name)));
     handleSelectChannel(newChannel);
@@ -235,11 +243,17 @@ const App = () => {
             onNewMessage={handleNewMessage}
             onBack={previousView ? handleBack : null}
             previousView={previousView}
+            draftMessage={draftMessage}
+            onDraftConsumed={() => setDraftMessage('')}
           />
         ) : currentView === 'inbox' ? (
           <Inbox user={user} onSelectChannel={handleSelectChannel} unreadCounts={unreadCounts} />
         ) : currentView === 'nexus' ? (
           <Nexus user={user} />
+        ) : currentView === 'gmail' ? (
+          <Gmail user={user} channels={channels} dms={dms} onShareToChannel={handleShareToChannel} />
+        ) : currentView === 'drive' ? (
+          <GoogleDrive channels={channels} dms={dms} onShareToChannel={handleShareToChannel} />
         ) : currentView === 'admin' && (user.role === 'OWNER' || user.role === 'ADMIN') ? (
           <AdminPanel />
         ) : null}
