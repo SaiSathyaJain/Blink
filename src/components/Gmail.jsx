@@ -79,11 +79,11 @@ export default function Gmail({ user, channels, dms, onShareToChannel }) {
       const listData = await listRes.json();
       if (!listData.messages) { setMessages([]); setLoading(false); return; }
 
-      // Batch fetch metadata
+      // Batch fetch with full format but only needed fields
       const details = await Promise.all(
         listData.messages.map(m =>
           fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject,From,Date`,
+            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full&fields=id,threadId,snippet,labelIds,payload/headers`,
             { headers: { Authorization: `Bearer ${token}` } }
           ).then(r => r.json())
         )
@@ -157,6 +157,7 @@ export default function Gmail({ user, channels, dms, onShareToChannel }) {
 
   const body = selectedFull ? getBody(selectedFull.payload) : '';
   const isHtml = body.startsWith('<') || body.includes('</');
+  const detailHeaders = selectedFull?.payload?.headers || selected?.payload?.headers || [];
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
@@ -220,11 +221,12 @@ export default function Gmail({ user, channels, dms, onShareToChannel }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.5rem' }}>
-                {getHeader(selected.payload?.headers, 'Subject') || '(no subject)'}
+                {getHeader(detailHeaders, 'Subject') || '(no subject)'}
               </h3>
               <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span><strong style={{ color: 'var(--text-main)' }}>From:</strong> {getHeader(selected.payload?.headers, 'From')}</span>
-                <span><strong style={{ color: 'var(--text-main)' }}>Date:</strong> {getHeader(selected.payload?.headers, 'Date')}</span>
+                <span><strong style={{ color: 'var(--text-main)' }}>From:</strong> {getHeader(detailHeaders, 'From')}</span>
+                <span><strong style={{ color: 'var(--text-main)' }}>To:</strong> {getHeader(detailHeaders, 'To')}</span>
+                <span><strong style={{ color: 'var(--text-main)' }}>Date:</strong> {getHeader(detailHeaders, 'Date')}</span>
               </div>
             </div>
             <button onClick={() => setShareTarget(selected)}
