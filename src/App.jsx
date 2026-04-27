@@ -251,9 +251,9 @@ const App = () => {
         ) : currentView === 'nexus' ? (
           <Nexus user={user} />
         ) : currentView === 'gmail' ? (
-          <Gmail user={user} channels={channels} dms={dms} onShareToChannel={handleShareToChannel} />
+          <Gmail user={user} channels={channels} dms={dms} />
         ) : currentView === 'drive' ? (
-          <GoogleDrive channels={channels} dms={dms} onShareToChannel={handleShareToChannel} />
+          <GoogleDrive channels={channels} dms={dms} />
         ) : currentView === 'admin' && (user.role === 'OWNER' || user.role === 'ADMIN') ? (
           <AdminPanel />
         ) : null}

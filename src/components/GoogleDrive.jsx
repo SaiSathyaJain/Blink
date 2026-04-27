@@ -3,6 +3,8 @@ import { RefreshCw, Search, Share2, LogOut, ExternalLink, File, FileText, Image,
 import { useGoogleToken } from '../hooks/useGoogleToken';
 import ShareToChannelModal from './ShareToChannelModal';
 
+const API = 'https://blinkv2.saisathyajain.workers.dev';
+
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
 
 const MIME_ICONS = {
@@ -46,7 +48,7 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-export default function GoogleDrive({ channels, dms, onShareToChannel }) {
+export default function GoogleDrive({ channels, dms }) {
   const { token, loading: tokenLoading, error: tokenError, requestToken, revoke } = useGoogleToken(DRIVE_SCOPE);
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -76,13 +78,21 @@ export default function GoogleDrive({ channels, dms, onShareToChannel }) {
     return () => clearTimeout(t);
   }, [query, fetchFiles]);
 
-  const handleShare = (channel) => {
+  const handleShare = async (channel) => {
     const f = shareTarget;
-    const text = `📁 **${f.name}**\n${f.webViewLink || ''}`;
-    onShareToChannel(channel, text);
+    const { label: mimeLabel } = getFileIcon(f.mimeType);
+    const payload = JSON.stringify({ fileName: f.name, mimeLabel, webViewLink: f.webViewLink || '' });
     setShareTarget(null);
-    setShareSuccess(`Shared to ${channel.name || channel.other_user_name}`);
-    setTimeout(() => setShareSuccess(''), 3000);
+    try {
+      const token = localStorage.getItem('blink_token');
+      await fetch(`${API}/api/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channelId: channel.id, content: payload, type: 'DRIVE' }),
+      });
+      setShareSuccess(`Shared to ${channel.name || channel.other_user_name}`);
+      setTimeout(() => setShareSuccess(''), 3000);
+    } catch { }
   };
 
   if (!token) {

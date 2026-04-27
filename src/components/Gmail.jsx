@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Compose, Mail, Send, X, ChevronLeft, Share2, LogOut, Pencil } from 'lucide-react';
+import { RefreshCw, X, ChevronLeft, Share2, LogOut, Pencil } from 'lucide-react';
 import { useGoogleToken } from '../hooks/useGoogleToken';
 import ShareToChannelModal from './ShareToChannelModal';
+
+const API = 'https://blinkv2.saisathyajain.workers.dev';
 
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send';
 
@@ -54,7 +56,7 @@ function timeAgo(dateStr) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-export default function Gmail({ user, channels, dms, onShareToChannel }) {
+export default function Gmail({ user, channels, dms }) {
   const { token, loading: tokenLoading, error: tokenError, requestToken, revoke } = useGoogleToken(GMAIL_SCOPE);
   const [messages, setMessages] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -124,16 +126,24 @@ export default function Gmail({ user, channels, dms, onShareToChannel }) {
     setSending(false);
   };
 
-  const handleShare = (channel) => {
+  const handleShare = async (channel) => {
     const msg = shareTarget;
-    const from = getHeader(msg.payload?.headers, 'From');
-    const subject = getHeader(msg.payload?.headers, 'Subject');
-    const snippet = msg.snippet || '';
-    const text = `📧 **${subject}**\nFrom: ${from}\n${snippet.slice(0, 200)}`;
-    onShareToChannel(channel, text);
+    const headers = selectedFull?.payload?.headers || msg.payload?.headers || [];
+    const from = getHeader(headers, 'From');
+    const subject = getHeader(headers, 'Subject');
+    const snippet = (msg.snippet || '').slice(0, 200);
+    const payload = JSON.stringify({ subject: subject || '(no subject)', from, snippet });
     setShareTarget(null);
-    setShareSuccess(`Shared to ${channel.name || channel.other_user_name}`);
-    setTimeout(() => setShareSuccess(''), 3000);
+    try {
+      const token = localStorage.getItem('blink_token');
+      await fetch(`${API}/api/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ channelId: channel.id, content: payload, type: 'GMAIL' }),
+      });
+      setShareSuccess(`Shared to ${channel.name || channel.other_user_name}`);
+      setTimeout(() => setShareSuccess(''), 3000);
+    } catch { }
   };
 
   if (!token) {

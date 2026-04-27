@@ -79,6 +79,76 @@ function groupReactions(reactions = []) {
   return Object.entries(map).map(([emoji, userIds]) => ({ emoji, userIds }));
 }
 
+// ── GmailCard ─────────────────────────────────────────────────────────────
+
+const GmailCard = ({ content }) => {
+  let data = null;
+  try { data = JSON.parse(content); } catch { data = null; }
+  if (!data) return <div className="text">{content}</div>;
+  const { subject, from, snippet } = data;
+  return (
+    <div style={{ marginTop: '0.5rem', maxWidth: '400px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ padding: '0.5rem 0.875rem', backgroundColor: '#ea4335', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" /></svg>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'white', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Gmail · Shared Email</span>
+      </div>
+      <div style={{ padding: '0.75rem 0.875rem' }}>
+        <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.375rem', lineHeight: 1.3 }}>{subject || '(no subject)'}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>From:</span> {from}
+          </div>
+          {snippet && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', lineHeight: 1.5, borderTop: '1px solid var(--border)', paddingTop: '0.375rem' }}>
+              {snippet}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ── DriveCard ─────────────────────────────────────────────────────────────
+
+const DriveCard = ({ content }) => {
+  let data = null;
+  try { data = JSON.parse(content); } catch { data = null; }
+  if (!data) return <div className="text">{content}</div>;
+  const { fileName, mimeLabel, webViewLink } = data;
+  return (
+    <div style={{ marginTop: '0.5rem', maxWidth: '400px', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border)', backgroundColor: 'var(--bg-main)' }}>
+      <div style={{ padding: '0.5rem 0.875rem', backgroundColor: '#4285f4', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <svg width="14" height="14" viewBox="0 0 87.3 78" style={{ flexShrink: 0 }}>
+          <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="white" fillOpacity="0.9"/>
+          <path d="M43.65 25L29.9 1.2c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 00-1.2 4.5h27.5z" fill="white" fillOpacity="0.9"/>
+          <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 10.5z" fill="white" fillOpacity="0.9"/>
+          <path d="M43.65 25L57.4 1.2C56.05.4 54.5 0 52.85 0H34.45c-1.65 0-3.2.4-4.55 1.2z" fill="white"/>
+          <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.55 1.2h50.7c1.65 0 3.2-.4 4.55-1.2z" fill="white"/>
+          <path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25l16.15 28H87.3c0-1.55-.4-3.1-1.2-4.5z" fill="white" fillOpacity="0.9"/>
+        </svg>
+        <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'white', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Drive · Shared File</span>
+      </div>
+      <div style={{ padding: '0.75rem 0.875rem' }}>
+        <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.375rem', lineHeight: 1.3 }}>{fileName}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          {mimeLabel && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>Type:</span> {mimeLabel}
+            </div>
+          )}
+          {webViewLink && (
+            <a href={webViewLink} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: '0.75rem', fontWeight: 600, color: '#4285f4', marginTop: '0.375rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+              Open in Drive ↗
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ── NexusCard ─────────────────────────────────────────────────────────────
 
 const NexusCard = ({ content }) => {
@@ -203,7 +273,7 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowReactionPicker(false); }}
     >
-      {hovered && msg.type !== 'NEXUS' && (
+      {hovered && !['NEXUS','GMAIL','DRIVE'].includes(msg.type) && (
         <div className="message-actions">
           {QUICK_REACTIONS.map(emoji => (
             <button key={emoji} className="action-btn reaction-quick" onClick={() => onToggleReaction(msg.id, emoji)} title={emoji}>
@@ -238,6 +308,21 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
             <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="21" x2="9" y2="9" />
           </svg>
         </div>
+      ) : msg.type === 'GMAIL' ? (
+        <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: '#ea4335', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z" /></svg>
+        </div>
+      ) : msg.type === 'DRIVE' ? (
+        <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: '#4285f4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <svg width="22" height="19" viewBox="0 0 87.3 78">
+            <path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8H0c0 1.55.4 3.1 1.2 4.5z" fill="white"/>
+            <path d="M43.65 25L29.9 1.2c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 00-1.2 4.5h27.5z" fill="white"/>
+            <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5H59.8l5.85 10.5z" fill="white"/>
+            <path d="M43.65 25L57.4 1.2C56.05.4 54.5 0 52.85 0H34.45c-1.65 0-3.2.4-4.55 1.2z" fill="white"/>
+            <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.55 1.2h50.7c1.65 0 3.2-.4 4.55-1.2z" fill="white"/>
+            <path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25l16.15 28H87.3c0-1.55-.4-3.1-1.2-4.5z" fill="white"/>
+          </svg>
+        </div>
       ) : msg.avatar_url ? (
         <img src={msg.avatar_url} alt="" onClick={() => onAvatarClick({ name: msg.full_name, id: msg.user_id })}
           style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', cursor: 'pointer', flexShrink: 0 }} />
@@ -247,9 +332,9 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
 
       <div className="message-content">
         <div className="message-header">
-          <span className="user-name" style={{ cursor: msg.type === 'NEXUS' ? 'default' : 'pointer' }}
-            onClick={() => msg.type !== 'NEXUS' && onAvatarClick({ name: msg.full_name, id: msg.user_id })}>
-            {msg.type === 'NEXUS' ? 'Nexus' : msg.full_name}
+          <span className="user-name" style={{ cursor: ['NEXUS','GMAIL','DRIVE'].includes(msg.type) ? 'default' : 'pointer' }}
+            onClick={() => !['NEXUS','GMAIL','DRIVE'].includes(msg.type) && onAvatarClick({ name: msg.full_name, id: msg.user_id })}>
+            {msg.type === 'NEXUS' ? 'Nexus' : msg.type === 'GMAIL' ? 'Gmail' : msg.type === 'DRIVE' ? 'Google Drive' : msg.full_name}
           </span>
           <span className="timestamp" title={formatFull(msg.timestamp)}>{formatTime(msg.timestamp)}</span>
           {msg.edited_at && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>(edited)</span>}
@@ -285,6 +370,10 @@ const MessageItem = memo(({ msg, currentUser, isAdmin, onReply, onToggleReaction
           <PollMessage poll={msg.poll} onVote={onVotePoll} />
         ) : msg.type === 'NEXUS' ? (
           <NexusCard content={msg.content} />
+        ) : msg.type === 'GMAIL' ? (
+          <GmailCard content={msg.content} />
+        ) : msg.type === 'DRIVE' ? (
+          <DriveCard content={msg.content} />
         ) : (
           <div className={`text ${emojiOnly ? 'emoji-only' : ''}`} dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }} />
         )}
