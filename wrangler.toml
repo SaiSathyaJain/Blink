@@ -25,3 +25,10 @@ crons = ["* * * * *"]
 UPSTASH_REDIS_REST_URL = "https://obliging-joey-79895.upstash.io"
 UPSTASH_REDIS_REST_TOKEN = "gQAAAAAAATgXAAIncDIwNTAyOTNhOGM5YmY0ZTBiYmUyNTY3NTJkYzIyZGFiMnAyNzk4OTU"
 # ENCRYPTION_KEY is set as a Cloudflare secret via GitHub Actions
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "blink-messages"
+
+[ai]
+binding = "AI"

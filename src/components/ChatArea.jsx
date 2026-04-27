@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom';
 import {
   Paperclip, Image as ImageIcon, AtSign, Smile, Send, Search, Users,
   FolderOpen, Hash, File, Download, Pin, PinOff, Reply, Edit2, Trash2,
-  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus, Clock, ArrowLeft,
+  X, Check, ChevronDown, MessageCircle, Bell, BellOff, Link2, BarChart2, Plus, Minus, Clock, ArrowLeft, PenLine,
 } from 'lucide-react';
 import Picker from '@emoji-mart/react';
 import data from '@emoji-mart/data';
 import FileModal from './FileModal';
 import ProfileSidebar from './ProfileSidebar';
 import FileSidebar from './FileSidebar';
+import Whiteboard from './Whiteboard';
 
 const API = 'https://blinkv2.saisathyajain.workers.dev';
 const WS_URL = 'wss://blinkv2.saisathyajain.workers.dev';
@@ -361,6 +362,7 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [profileUser, setProfileUser] = useState(null);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
   const [typingUsers, setTypingUsers] = useState({});
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
@@ -576,6 +578,10 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
           setRateLimitError(data.message);
           setTimeout(() => setRateLimitError(null), 4000);
         }
+
+        if (data.type === 'whiteboard_state' || data.type === 'whiteboard_draw' || data.type === 'whiteboard_clear') {
+          window.dispatchEvent(new CustomEvent('whiteboard_ws', { detail: data }));
+        }
       } catch {}
     };
 
@@ -766,6 +772,9 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
             </button>
             <button onClick={() => { setShowFiles(f => !f); setShowProfile(false); }} className="text-muted" style={{ display: 'flex', color: showFiles ? 'var(--primary)' : undefined }}>
               <FolderOpen size={18} />
+            </button>
+            <button onClick={() => setShowWhiteboard(w => !w)} className="text-muted" title="Whiteboard" style={{ display: 'flex', color: showWhiteboard ? 'var(--primary)' : undefined }}>
+              <PenLine size={18} />
             </button>
           </div>
         </header>
@@ -1007,7 +1016,12 @@ const ChatArea = ({ channel, user, onNewMessage, onBack, previousView }) => {
       )}
 
       {showProfile && <ProfileSidebar user={profileUser} onClose={() => setShowProfile(false)} />}
-      {showFiles && !showProfile && <FileSidebar messages={messages} onClose={() => setShowFiles(false)} />}
+      {showFiles && !showProfile && !showWhiteboard && <FileSidebar messages={messages} onClose={() => setShowFiles(false)} />}
+      {showWhiteboard && !showProfile && (
+        <div style={{ width: 560, minWidth: 380, flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Whiteboard channel={channel} user={user} sendWS={sendWS} onClose={() => setShowWhiteboard(false)} />
+        </div>
+      )}
       <FileModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSend={handleFileSend} />
 
       {showPollCreator && createPortal(

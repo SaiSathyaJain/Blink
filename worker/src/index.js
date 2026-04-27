@@ -313,6 +313,7 @@ export default {
 
     if (pathname === '/api/link-preview' && request.method === 'GET') return handleLinkPreview(request, env);
     if (pathname === '/api/search' && request.method === 'GET') return handleSearch(request, env);
+    if (pathname === '/api/semantic-search' && request.method === 'GET') return handleSemanticSearch(request, env);
     if (pathname === '/api/invite' && request.method === 'POST') return handleCreateInvite(request, env);
     if (pathname.startsWith('/api/invite/') && request.method === 'GET') return handleJoinInvite(request, env);
     if (pathname.startsWith('/api/read-receipt/') && request.method === 'PUT') return handleUpdateReadReceipt(request, env);
@@ -654,6 +655,37 @@ async function handleMessages(request, env) {
 
   return corsResponse(JSON.stringify(decrypted.map(m => ({ ...m, reactions: reactMap[m.id] || [] }))));
 }
+
+async function handleSemanticSearch(request, env) {
+  const { q, channelId } = Object.fromEntries(new URL(request.url).searchParams);
+
+  // Embed the search query
+  const { data } = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [q] });
+
+  // Query Vectorize — filter to this channel only
+  const results = await env.VECTORIZE.query(data[0], {
+    topK: 20,
+    filter: { channelId },
+    returnMetadata: true,
+  });
+
+  // Fetch actual messages from D1 by the returned IDs
+  const ids = results.matches.map(m => `'${m.id}'`).join(',');
+  const { results: messages } = await env.DB.prepare(
+    `SELECT m.id, m.content, m.timestamp, u.full_name
+     FROM messages m JOIN users u ON u.id = m.user_id
+     WHERE m.id IN (${ids}) AND m.is_deleted = 0`
+  ).all();
+
+  // Decrypt content
+  const decrypted = await Promise.all(messages.map(async m => ({
+    ...m, content: await decrypt(m.content, env.ENCRYPTION_KEY),
+  })));
+
+  return corsResponse(JSON.stringify(decrypted));
+}
+
+
 
 async function handleEditMessage(request, env) {
   const user = getAuth(request);
@@ -1078,6 +1110,7 @@ export class ChatRoom {
     this.sessions = [];
     this.reactions = {}; // in-memory: messageId -> [{emoji, user_id}]
     this.msgRates = {};  // in-memory rate limit: userId -> { count, windowStart }
+    this.whiteboardStrokes = {}; // in-memory: channelId -> [stroke, ...]
   }
 
   isRateLimited(userId) {
@@ -1145,9 +1178,20 @@ export class ChatRoom {
           // Broadcast first for instant delivery, persist in background
           this.broadcast({ type: 'new_message', message: messageObj }, data.channelId);
           this.state.waitUntil((async () => {
-            const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
-            const encReplyContent = data.replyContent ? await encrypt(data.replyContent, this.env.ENCRYPTION_KEY) : null;
-            await this.env.DB.prepare(
+              // 1. Embed plain text FIRST (before it gets encrypted)
+              const { data: aiData } = await this.env.AI.run('@cf/baai/bge-base-en-v1.5', {
+                text: [data.content],
+              });
+              await this.env.VECTORIZE.upsert([{
+                id: messageId,
+                values: aiData[0],
+                metadata: { channelId: data.channelId, userId: data.userId },
+              }]);
+
+              // 2. Then encrypt and write to D1 (unchanged)
+              const encContent = await encrypt(data.content, this.env.ENCRYPTION_KEY);
+              const encReplyContent = data.replyContent ? await encrypt(data.replyContent, this.env.ENCRYPTION_KEY) : null;
+              await this.env.DB.prepare(
               'INSERT INTO messages (id, channel_id, user_id, content, type, reply_to_id, reply_content, reply_user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             ).bind(messageId, data.channelId, data.userId, encContent, 'TEXT', data.replyToId || null, encReplyContent, data.replyUserName || null).run();
           })());
@@ -1205,6 +1249,25 @@ export class ChatRoom {
               poll: { id: pollId, question: data.question, options: options.map(o => ({ ...o, votes: 0 })), totalVotes: 0, userVote: null },
             }
           }, data.channelId);
+        }
+
+        if (data.type === 'whiteboard_sync') {
+          const strokes = this.whiteboardStrokes[data.channelId] || [];
+          webSocket.send(JSON.stringify({ type: 'whiteboard_state', strokes }));
+        }
+
+        if (data.type === 'whiteboard_draw') {
+          if (!this.whiteboardStrokes[data.channelId]) this.whiteboardStrokes[data.channelId] = [];
+          this.whiteboardStrokes[data.channelId].push(data.stroke);
+          if (this.whiteboardStrokes[data.channelId].length > 2000) {
+            this.whiteboardStrokes[data.channelId] = this.whiteboardStrokes[data.channelId].slice(-2000);
+          }
+          this.broadcast({ type: 'whiteboard_draw', stroke: data.stroke, channelId: data.channelId }, data.channelId, webSocket);
+        }
+
+        if (data.type === 'whiteboard_clear') {
+          this.whiteboardStrokes[data.channelId] = [];
+          this.broadcast({ type: 'whiteboard_clear', channelId: data.channelId }, data.channelId);
         }
 
         if (data.type === 'vote_poll') {
